@@ -30,17 +30,8 @@ namespace Storarr.Data
                 entity.HasData(new Config
                 {
                     Id = 1,
-                    // Service URLs and API Keys (pre-configured for testing)
-                    JellyfinUrl = "https://jelly.mannyg.stream",
-                    JellyfinApiKey = "deda990a369a438f8c40af798b273162",
-                    JellyseerrUrl = "https://requests.mannyg.stream",
-                    JellyseerrApiKey = "MTc2OTY1MDM3NjU1MDc1NmEzYzBjLWY4OTctNDM4Zi1hZjNlLTdmYmU5YjQyMjg0MQ==",
-                    SonarrUrl = "https://sonarr.mannyg.stream",
-                    SonarrApiKey = "e93097d3bc5348f5816be9b15bcf52a9",
-                    RadarrUrl = "https://radarr.mannyg.stream",
-                    RadarrApiKey = "7bf1e6972098410fba1d4144d1169a3e",
-                    // Default settings
-                    FirstRunComplete = true,
+                    // Default settings - configure via UI or environment
+                    FirstRunComplete = false,
                     LibraryMode = LibraryMode.NewContentOnly,
                     MediaLibraryPath = "/media",
                     SymlinkToMkvValue = 7,

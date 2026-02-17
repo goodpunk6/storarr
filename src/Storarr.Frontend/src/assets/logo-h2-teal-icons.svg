@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="h2main" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#14b8a6"/>
+      <stop offset="100%" style="stop-color:#0d9488"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="85" fill="url(#h2main)"/>
+  <!-- STREAM Tier - Cloud (centered) -->
+  <rect x="45" y="50" width="110" height="28" rx="4" fill="#99f6e4"/>
+  <ellipse cx="78" cy="64" rx="14" ry="8" fill="#5eead4"/>
+  <ellipse cx="100" cy="64" rx="18" ry="10" fill="#14b8a6"/>
+  <ellipse cx="122" cy="64" rx="14" ry="8" fill="#5eead4"/>
+  <!-- SSD Tier - Chips -->
+  <rect x="45" y="86" width="110" height="28" rx="4" fill="#5eead4"/>
+  <rect x="55" y="93" width="20" height="14" rx="2" fill="#0f766e"/>
+  <rect x="80" y="93" width="20" height="14" rx="2" fill="#0f766e"/>
+  <rect x="105" y="93" width="20" height="14" rx="2" fill="#0f766e"/>
+  <rect x="130" y="90" width="15" height="20" rx="2" fill="#fbbf24"/>
+  <!-- HDD Tier - Platter -->
+  <rect x="45" y="122" width="110" height="28" rx="4" fill="#2dd4bf"/>
+  <circle cx="80" cy="136" r="12" fill="#0f766e"/>
+  <circle cx="80" cy="136" r="8" fill="#14b8a6"/>
+  <circle cx="80" cy="136" r="3" fill="#fbbf24"/>
+  <circle cx="80" cy="136" r="10" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>
+  <rect x="105" y="128" width="40" height="14" rx="2" fill="#0f766e"/>
+  <!-- Arrows -->
+  <g stroke="#fbbf24" stroke-width="3" fill="none">
+    <path d="M35 58 L35 142" stroke-linecap="round"/>
+    <path d="M35 142 L29 134 M35 142 L41 134" stroke-linecap="round" stroke-width="2.5"/>
+    <path d="M165 142 L165 58" stroke-linecap="round"/>
+    <path d="M165 58 L159 66 M165 58 L171 66" stroke-linecap="round" stroke-width="2.5"/>
+  </g>
+  <!-- Status dot -->
+  <circle cx="150" cy="58" r="4" fill="#22c55e"/>
+</svg>

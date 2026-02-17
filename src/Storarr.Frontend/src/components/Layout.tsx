@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { HardDrive, Film, Download, Clock, Settings, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { useSignalR } from '../hooks/useSignalR'
+import logoWithText from '../assets/logo-with-text.svg'
+import logoIcon from '../assets/logo-icon.svg'
 
 interface LayoutProps {
   children: ReactNode
@@ -36,9 +38,20 @@ export default function Layout({ children }: LayoutProps) {
             >
               {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
-            <h1 className="text-xl font-bold text-arr-accent">STORARR</h1>
+            <Link to="/" className="flex items-center gap-2">
+              <img 
+                src={logoWithText} 
+                alt="Storarr" 
+                className="h-10 w-auto hidden sm:block"
+              />
+              <img 
+                src={logoIcon} 
+                alt="Storarr" 
+                className="h-8 w-8 sm:hidden"
+              />
+            </Link>
           </div>
-          <div className="text-arr-muted text-sm">
+          <div className="text-arr-muted text-sm hidden md:block">
             Tiered Media Storage Manager
           </div>
         </div>

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60">
+  <defs>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#14b8a6"/>
+      <stop offset="100%" style="stop-color:#0d9488"/>
+    </linearGradient>
+  </defs>
+  <!-- Circle centered at (30,30) radius 26 -->
+  <circle cx="30" cy="30" r="26" fill="url(#iconGrad)"/>
+  <!-- STREAM Tier - Cloud (y=13, height=10, center at y=18) -->
+  <rect x="13" y="13" width="34" height="10" rx="2" fill="#99f6e4"/>
+  <ellipse cx="22" cy="18" rx="5" ry="3" fill="#5eead4"/>
+  <ellipse cx="30" cy="18" rx="6" ry="4" fill="#14b8a6"/>
+  <ellipse cx="38" cy="18" rx="5" ry="3" fill="#5eead4"/>
+  <!-- SSD Tier - Chips (y=25, height=10) -->
+  <rect x="13" y="25" width="34" height="10" rx="2" fill="#5eead4"/>
+  <rect x="16" y="27" width="7" height="5" rx="1" fill="#0f766e"/>
+  <rect x="24" y="27" width="7" height="5" rx="1" fill="#0f766e"/>
+  <rect x="32" y="27" width="7" height="5" rx="1" fill="#0f766e"/>
+  <rect x="40" y="26" width="5" height="7" rx="1" fill="#fbbf24"/>
+  <!-- HDD Tier - Platter (y=37, height=10) -->
+  <rect x="13" y="37" width="34" height="10" rx="2" fill="#2dd4bf"/>
+  <circle cx="24" cy="42" r="4" fill="#0f766e"/>
+  <circle cx="24" cy="42" r="2.5" fill="#14b8a6"/>
+  <circle cx="24" cy="42" r="1" fill="#fbbf24"/>
+  <rect x="32" y="39" width="12" height="5" rx="1" fill="#0f766e"/>
+</svg>

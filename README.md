@@ -1,21 +1,34 @@
-# Storarr - Tiered Media Storage Manager
+# Storarr - Intelligent Media Storage Solution
 
 [![Docker](https://img.shields.io/badge/docker-supported-blue)](https://www.docker.com/)
 [![.NET](https://img.shields.io/badge/.NET-5.0-512BD4)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
 
-A containerized web application that orchestrates automatic transitions between **.strm streaming files** and **actual .mkv files** (local storage) for Jellyfin media libraries.
+## The Problem
+
+Have you ever requested a movie or two (or three!) that you wanted to watch *right now*? Your trusty arr stack dutifully downloads a space-saving .strm file — mere bytes! — ready to stream instantly. But then... life happens. Something pops up, and you just didn't get to watching it.
+
+Now that .strm file sits there, taking up almost no space, but also not giving you the quality experience you originally wanted. Why not have Storarr leverage the power of your arr stack while you're away and fetch that high-quality local file for you?
+
+And here's the thing — what happens when you're done watching it? Or maybe you *never* watched it at all? That 4GB movie file is now just eating disk space. Might as well reclaim it and have Storarr convert those TV shows and movies back to space-saving .strm files.
+
+**Enter Storarr** — the intelligent tiered storage solution that automatically manages your media library, balancing between instant streaming and high-quality local playback.
+
+## What is Storarr?
+
+Storarr is a containerized web application that orchestrates automatic transitions between **.strm streaming files** and **actual .mkv files** (local storage) for Jellyfin media libraries. It's a **storage management solution** that intelligently moves your media between tiers based on your watching habits.
 
 > **Note:** While originally designed for NZB-Dav, Storarr works with **any WebDAV-based streaming solution** that generates .strm files recognizable by Jellyfin (e.g., rclone mount, plexdrive, cloud-based streaming services). The power of Storarr comes from leveraging your existing *arr stack (Sonarr/Radarr) to handle the actual file management.
 
 ## Table of Contents
 
-- [Overview](#overview)
+- [The Problem](#the-problem)
+- [What is Storarr?](#what-is-storarr)
+- [How It Works](#how-it-works)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Library Modes](#library-modes)
-- [How It Works](#how-it-works)
 - [API Reference](#api-reference)
 - [Download Clients](#download-clients)
 - [Webhooks](#webhooks)
@@ -23,13 +36,13 @@ A containerized web application that orchestrates automatic transitions between 
 - [Troubleshooting](#troubleshooting)
 - [Acknowledgments](#acknowledgments)
 
-## Overview
+## How It Works
 
 Storarr bridges the gap between streaming and local storage for media libraries. It intelligently manages your media by:
 
 1. **Tracking watch history** via Jellyfin
-2. **Converting symlinks to MKV** when content is frequently watched
-3. **Restoring symlinks** when content becomes inactive
+2. **Converting .strm to MKV** when content sits unwatched (you requested it, might as well have it in high quality!)
+3. **Converting MKV back to .strm** when content becomes inactive (save that disk space!)
 4. **Integrating seamlessly** with Sonarr, Radarr, and Jellyseerr
 
 ### The Workflow
@@ -55,9 +68,16 @@ Storarr bridges the gap between streaming and local storage for media libraries.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Storage Tiers
+
+| Tier | File Type | Size | Use Case |
+|------|-----------|------|----------|
+| **Stream** | .strm symlink | ~1 KB | Instant access, streaming from cloud/usenet |
+| **Local** | .mkv/.mp4 | 1-10 GB | High quality playback, offline viewing |
+
 ### WebDAV/STRM Compatibility
 
-Storarr is designed to work with **any streaming solution** that uses `.strm` files:
+Storarr works with **any streaming solution** that uses `.strm` files:
 
 | Solution | Type | How It Works |
 |----------|------|--------------|
@@ -66,11 +86,9 @@ Storarr is designed to work with **any streaming solution** that uses `.strm` fi
 | **plexdrive** | Google Drive | Optimized Drive mounting for media |
 | **Any WebDAV server** | Generic | Any server that serves media via WebDAV |
 
-The key requirement is that your streaming solution generates `.strm` files that Jellyfin can read. When a `.strm` file is played, Jellyfin reads the URL inside and streams from that location.
+### How It Leverages Your Arr Stack
 
-**How it leverages your arr stack:**
-
-Storarr doesn't download files itself - it orchestrates your existing infrastructure:
+Storarr doesn't download files itself — it orchestrates your existing infrastructure:
 
 1. **Sonarr/Radarr** handle all download management
 2. **Jellyfin** tracks watch history
@@ -207,7 +225,7 @@ Storarr supports three library modes, configurable during first-run setup:
 - Most hands-off but highest risk
 - Recommended only after testing with other modes
 
-## How It Works
+## Transition Details
 
 ### Symlink → MKV Transition
 
