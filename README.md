@@ -4,7 +4,9 @@
 [![.NET](https://img.shields.io/badge/.NET-5.0-512BD4)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
 
-A containerized web application that orchestrates automatic transitions between **symlinks** (NZB-Dav streaming) and **actual .mkv files** (local storage) for Jellyfin media libraries.
+A containerized web application that orchestrates automatic transitions between **.strm streaming files** and **actual .mkv files** (local storage) for Jellyfin media libraries.
+
+> **Note:** While originally designed for NZB-Dav, Storarr works with **any WebDAV-based streaming solution** that generates .strm files recognizable by Jellyfin (e.g., rclone mount, plexdrive, cloud-based streaming services). The power of Storarr comes from leveraging your existing *arr stack (Sonarr/Radarr) to handle the actual file management.
 
 ## Table of Contents
 
@@ -19,6 +21,7 @@ A containerized web application that orchestrates automatic transitions between 
 - [Webhooks](#webhooks)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
+- [Acknowledgments](#acknowledgments)
 
 ## Overview
 
@@ -51,6 +54,30 @@ Storarr bridges the gap between streaming and local storage for media libraries.
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### WebDAV/STRM Compatibility
+
+Storarr is designed to work with **any streaming solution** that uses `.strm` files:
+
+| Solution | Type | How It Works |
+|----------|------|--------------|
+| **NZB-Dav** | Usenet WebDAV | Streams directly from usenet providers |
+| **rclone mount** | Cloud storage | Mounts Google Drive, Dropbox, etc. as WebDAV |
+| **plexdrive** | Google Drive | Optimized Drive mounting for media |
+| **Any WebDAV server** | Generic | Any server that serves media via WebDAV |
+
+The key requirement is that your streaming solution generates `.strm` files that Jellyfin can read. When a `.strm` file is played, Jellyfin reads the URL inside and streams from that location.
+
+**How it leverages your arr stack:**
+
+Storarr doesn't download files itself - it orchestrates your existing infrastructure:
+
+1. **Sonarr/Radarr** handle all download management
+2. **Jellyfin** tracks watch history
+3. **Jellyseerr** manages content requests
+4. **Your download clients** (qBittorrent, SABnzbd, etc.) do the actual downloading
+
+Storarr simply tells Sonarr/Radarr when to download or delete files based on watch patterns, making it a lightweight orchestration layer on top of your existing setup.
 
 ## Features
 
@@ -434,6 +461,7 @@ MIT License - see LICENSE file for details.
 
 ## Acknowledgments
 
+- **[Claude Code](https://claude.ai/code)** - This application was created with the assistance of Claude Code, Anthropic's AI-powered coding assistant. Claude Code helped with architecture design, code implementation, debugging, and documentation.
 - Inspired by the *arr ecosystem (Sonarr, Radarr, Lidarr, etc.)
 - UI design inspired by arr-style interfaces
 - Built with love for the self-hosted community
