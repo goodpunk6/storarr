@@ -30,17 +30,8 @@ namespace Storarr.Data
                 entity.HasData(new Config
                 {
                     Id = 1,
-                    // Service URLs and API Keys (pre-configured for testing)
-                    JellyfinUrl = "http://localhost:8096",
-                    JellyfinApiKey = "YOUR_JELLYFIN_API_KEY",
-                    JellyseerrUrl = "http://localhost:5055",
-                    JellyseerrApiKey = "YOUR_JELLYSEERR_API_KEY",
-                    SonarrUrl = "http://localhost:8989",
-                    SonarrApiKey = "YOUR_SONARR_API_KEY",
-                    RadarrUrl = "http://localhost:7878",
-                    RadarrApiKey = "YOUR_RADARR_API_KEY",
-                    // Default settings
-                    FirstRunComplete = true,
+                    // Default settings - configure via UI or environment
+                    FirstRunComplete = false,
                     LibraryMode = LibraryMode.NewContentOnly,
                     MediaLibraryPath = "/media",
                     SymlinkToMkvValue = 7,
