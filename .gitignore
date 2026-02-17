@@ -1,0 +1,52 @@
+# Build artifacts
+bin/
+obj/
+out/
+dist/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Environment & secrets
+.env
+.env.*
+*.local
+appsettings.Development.json
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Docker volumes (local)
+.docker/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temp files
+*.tmp
+*.temp
+*.swp
+*~
+
+# Local docker-compose with real paths
+docker-compose.yml
