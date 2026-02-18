@@ -1,5 +1,11 @@
 # Storarr - Intelligent Media Storage Solution
 
+<div align="center">
+  <img src="src/Storarr.Frontend/src/assets/logo-h2-teal-icons.svg" alt="Storarr Logo" width="200">
+
+  *Intelligent tiered storage for your media library*
+</div>
+
 [![Docker](https://img.shields.io/badge/docker-supported-blue)](https://www.docker.com/)
 [![.NET](https://img.shields.io/badge/.NET-5.0-512BD4)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
