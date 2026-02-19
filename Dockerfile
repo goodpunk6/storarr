@@ -25,8 +25,7 @@ WORKDIR /app
 RUN useradd -u 1000 -g 1000 -m -s /bin/bash storarr || true
 
 # Create directories
-RUN mkdir -p /config /data && \
-    chown -R 1000:1000 /app /config /data
+RUN mkdir -p /config /data &&     chown -R 1000:1000 /app /config /data
 
 COPY --from=backend-build --chown=1000:1000 /app/Storarr/out ./
 
@@ -36,8 +35,5 @@ ENV DataDirectory=/data
 EXPOSE 8686
 
 USER 1000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8686/api/v1/dashboard || exit 1
 
 ENTRYPOINT ["dotnet", "Storarr.dll"]
