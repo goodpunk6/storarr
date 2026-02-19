@@ -24,7 +24,8 @@ namespace Storarr
             using (var scope = host.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<StorarrDbContext>();
-                dbContext.Database.EnsureCreated();
+                // MigrateAsync applies any pending migrations; safe to call even if DB is up to date.
+                dbContext.Database.Migrate();
             }
 
             host.Run();
@@ -56,6 +57,9 @@ namespace Storarr
 
             services.AddDbContext<StorarrDbContext>(options =>
                 options.UseSqlite($"Data Source={dbPath}"));
+
+            // Memory cache (used for config caching in services)
+            services.AddMemoryCache();
 
             // HTTP clients for services
             services.AddHttpClient<IJellyfinService, JellyfinService>();
@@ -89,7 +93,9 @@ namespace Storarr
                 });
             });
 
-            // CORS
+            // CORS: AllowAnyOrigin is intentional for home-server use where Storarr runs on a
+            // trusted LAN. If authentication is added in the future, this policy must be tightened
+            // to restrict allowed origins accordingly.
             services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", policy =>
