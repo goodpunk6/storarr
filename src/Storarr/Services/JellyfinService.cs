@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Storarr.Data;
@@ -18,6 +19,12 @@ namespace Storarr.Services
         private readonly StorarrDbContext _dbContext;
         private readonly ILogger<JellyfinService> _logger;
         private readonly JsonSerializerOptions _jsonOptions;
+
+        // Cache for GetLastPlayedDate to avoid N+1 Jellyfin API calls
+        private List<JellyfinItem>? _cachedItems;
+        private DateTime _cacheExpiry = DateTime.MinValue;
+        private static readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
+        private static readonly TimeSpan _cacheTtl = TimeSpan.FromMinutes(5);
 
         public JellyfinService(
             HttpClient httpClient,
@@ -46,7 +53,7 @@ namespace Storarr.Services
 
         private async Task<Config> GetConfig()
         {
-            return await _dbContext.Configs.FindAsync(1) ?? new Config();
+            return await _dbContext.Configs.FindAsync(Config.SingletonId) ?? new Config();
         }
 
         public async Task TestConnection()
@@ -56,44 +63,15 @@ namespace Storarr.Services
             response.EnsureSuccessStatusCode();
         }
 
-        public async Task<IEnumerable<WatchHistoryEntry>> GetWatchHistory(string itemId)
-        {
-            await ConfigureClient();
-            try
-            {
-                var response = await _httpClient.GetAsync($"Items/{itemId}/PlaybackInfo");
-                response.EnsureSuccessStatusCode();
-
-                var content = await response.Content.ReadAsStringAsync();
-                var data = JsonSerializer.Deserialize<JellyfinPlaybackInfo>(content, _jsonOptions);
-
-                return data?.MediaSources?.Select(s => new WatchHistoryEntry
-                {
-                    ItemId = itemId,
-                    PlayedAt = DateTime.UtcNow, // Jellyfin doesn't store playback time in this endpoint
-                    Completed = true
-                }) ?? Enumerable.Empty<WatchHistoryEntry>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get watch history for item {ItemId}", itemId);
-                return Enumerable.Empty<WatchHistoryEntry>();
-            }
-        }
-
         public async Task<DateTime?> GetLastPlayedDate(string filePath)
         {
             await ConfigureClient();
             try
             {
-                // Get all items and find the one matching the path
-                var response = await _httpClient.GetAsync("Items?Recursive=true&Fields=Path,LastPlayedDate");
-                response.EnsureSuccessStatusCode();
+                // Fetch all items once and cache them for a short TTL to avoid N+1 calls
+                var allItems = await GetCachedItems();
 
-                var content = await response.Content.ReadAsStringAsync();
-                var data = JsonSerializer.Deserialize<JellyfinItemsResult>(content, _jsonOptions);
-
-                var item = data?.Items?.FirstOrDefault(i =>
+                var item = allItems.FirstOrDefault(i =>
                     i.Path?.Equals(filePath, StringComparison.OrdinalIgnoreCase) == true);
 
                 return item?.LastPlayedDate;
@@ -102,6 +80,35 @@ namespace Storarr.Services
             {
                 _logger.LogError(ex, "Failed to get last played date for {FilePath}", filePath);
                 return null;
+            }
+        }
+
+        private async Task<List<JellyfinItem>> GetCachedItems()
+        {
+            if (_cachedItems != null && DateTime.UtcNow < _cacheExpiry)
+                return _cachedItems;
+
+            await _cacheLock.WaitAsync();
+            try
+            {
+                // Double-check after acquiring lock
+                if (_cachedItems != null && DateTime.UtcNow < _cacheExpiry)
+                    return _cachedItems;
+
+                var response = await _httpClient.GetAsync("Items?Recursive=true&Fields=Path,LastPlayedDate");
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<JellyfinItemsResult>(content, _jsonOptions);
+
+                _cachedItems = data?.Items ?? new List<JellyfinItem>();
+                _cacheExpiry = DateTime.UtcNow + _cacheTtl;
+
+                return _cachedItems;
+            }
+            finally
+            {
+                _cacheLock.Release();
             }
         }
 
@@ -140,7 +147,7 @@ namespace Storarr.Services
                 {
                     Id = item.Id,
                     Name = item.Name,
-                    Path = item.Path,
+                    Path = item.Path ?? string.Empty,
                     Type = MapMediaType(item.Type),
                     SeasonNumber = item.SeasonNumber,
                     EpisodeNumber = item.EpisodeNumber
@@ -168,7 +175,7 @@ namespace Storarr.Services
                 {
                     Id = i.Id,
                     Name = i.Name,
-                    Path = i.Path,
+                    Path = i.Path ?? string.Empty,
                     Type = MapMediaType(i.Type),
                     SeasonNumber = i.SeasonNumber,
                     EpisodeNumber = i.EpisodeNumber,

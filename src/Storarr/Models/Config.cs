@@ -5,6 +5,8 @@ namespace Storarr.Models
 {
     public class Config
     {
+        public const int SingletonId = 1;
+
         [Key]
         public int Id { get; set; } = 1;
 
@@ -95,6 +97,7 @@ namespace Storarr.Models
         {
             return unit switch
             {
+                TimeUnit.Minutes => TimeSpan.FromMinutes(value),
                 TimeUnit.Hours => TimeSpan.FromHours(value),
                 TimeUnit.Days => TimeSpan.FromDays(value),
                 TimeUnit.Weeks => TimeSpan.FromDays(value * 7),

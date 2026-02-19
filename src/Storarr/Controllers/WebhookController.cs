@@ -142,19 +142,21 @@ namespace Storarr.Controllers
         {
             if (payload.Media == null) return;
 
-            // Find the pending item and mark it as symlink
-            var item = await _dbContext.MediaItems
-                .FirstOrDefaultAsync(m => m.TmdbId == payload.Media.TmdbId &&
-                    m.CurrentState == FileState.PendingSymlink);
+            // For TV series a single TmdbId can match multiple episode items — update all of them
+            var items = await _dbContext.MediaItems
+                .Where(m => m.TmdbId == payload.Media.TmdbId &&
+                    m.CurrentState == FileState.PendingSymlink)
+                .ToListAsync();
 
-            if (item != null)
+            foreach (var item in items)
             {
                 item.CurrentState = FileState.Symlink;
                 item.StateChangedAt = DateTime.UtcNow;
-                await _dbContext.SaveChangesAsync();
-
                 _logger.LogInformation("Media item {Title} is now available as symlink", item.Title);
             }
+
+            if (items.Count > 0)
+                await _dbContext.SaveChangesAsync();
         }
 
         private async Task HandleSonarrDownloadComplete(SonarrWebhookPayload payload)

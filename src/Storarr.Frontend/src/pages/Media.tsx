@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, Link2, HardDrive, Download, Clock, Play, Pause, RefreshCw } from 'lucide-react'
 import { getMedia, forceDownload, forceSymlink, toggleExcluded } from '../api/client'
-import { MediaItem } from '../stores/appStore'
+import { MediaItem, useAppStore } from '../stores/appStore'
 
 export default function Media() {
   const [items, setItems] = useState<MediaItem[]>([])
@@ -11,8 +11,9 @@ export default function Media() {
   const [stateFilter, setStateFilter] = useState<string>('')
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const { lastMediaUpdate } = useAppStore()
 
-  const fetchMedia = async () => {
+  const fetchMedia = useCallback(async () => {
     try {
       const response = await getMedia({
         search: search || undefined,
@@ -25,11 +26,11 @@ export default function Media() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [search, stateFilter, typeFilter])
 
   useEffect(() => {
     fetchMedia()
-  }, [search, stateFilter, typeFilter])
+  }, [fetchMedia, lastMediaUpdate])
 
   const handleForceDownload = async (id: number) => {
     setActionLoading(id)
@@ -57,7 +58,7 @@ export default function Media() {
     }
   }
 
-  const handleToggleExcluded = async (id: number, _currentExcluded: boolean) => {
+  const handleToggleExcluded = async (id: number) => {
     setActionLoading(id)
     try {
       await toggleExcluded(id)
@@ -240,7 +241,7 @@ export default function Media() {
 
                     {/* Exclude/Include Toggle */}
                     <button
-                      onClick={() => handleToggleExcluded(item.id, item.isExcluded)}
+                      onClick={() => handleToggleExcluded(item.id)}
                       disabled={actionLoading === item.id}
                       className={`p-1.5 rounded disabled:opacity-50 ${
                         item.isExcluded

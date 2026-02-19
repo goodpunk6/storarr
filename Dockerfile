@@ -7,7 +7,7 @@ COPY src/Storarr.Frontend ./
 RUN npm run build
 
 # Build backend
-FROM mcr.microsoft.com/dotnet/sdk:5.0 AS backend-build
+FROM mcr.microsoft.com/dotnet/sdk:6.0 AS backend-build
 WORKDIR /app
 COPY src/Storarr/Storarr.csproj ./Storarr/
 COPY Storarr.sln ./
@@ -18,7 +18,7 @@ WORKDIR /app/Storarr
 RUN dotnet publish -c Release -o out
 
 # Runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:5.0
+FROM mcr.microsoft.com/dotnet/aspnet:6.0
 WORKDIR /app
 
 # Create non-root user (Debian-based)

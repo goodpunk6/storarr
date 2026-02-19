@@ -11,8 +11,8 @@ export function useSignalR() {
 
     connection.on('MediaUpdated', (mediaId: number, newState: string) => {
       console.log(`Media ${mediaId} updated to ${newState}`)
-      // Trigger a refresh of relevant data
-      useAppStore.getState().setMediaItems([]) // Clear cache to force refetch
+      // Record timestamp so subscribers can react without clearing cached data
+      useAppStore.getState().setLastMediaUpdate(Date.now())
     })
 
     connection.start()
@@ -20,7 +20,9 @@ export function useSignalR() {
       .catch((err) => console.error('SignalR connection error:', err))
 
     return () => {
-      connection.stop()
+      connection.stop().catch(() => {
+        // Ignore stop errors on cleanup
+      })
     }
   }, [])
 }

@@ -49,7 +49,7 @@ namespace Storarr.Controllers
 
             try
             {
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 if (config == null)
                 {
                     _logger.LogWarning("[ConfigController] Config not found in database");
@@ -75,7 +75,7 @@ namespace Storarr.Controllers
 
             try
             {
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 if (config == null)
                 {
                     _logger.LogWarning("[ConfigController] Config not found for update");
@@ -190,7 +190,7 @@ namespace Storarr.Controllers
 
             try
             {
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 if (config == null)
                 {
                     _logger.LogWarning("[ConfigController] Config not found for first run");
@@ -251,7 +251,7 @@ namespace Storarr.Controllers
 
             try
             {
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 var results = new List<ConnectionTestResult>();
 
                 if (config != null)
@@ -381,21 +381,23 @@ namespace Storarr.Controllers
 
         private static string? MaskApiKey(string? apiKey)
         {
-            if (string.IsNullOrEmpty(apiKey) || apiKey.Length < 8)
+            if (string.IsNullOrEmpty(apiKey))
                 return apiKey;
-            return apiKey.Substring(0, 4) + "****" + apiKey.Substring(apiKey.Length - 4);
+            return MaskedSentinel;
         }
 
         private static string? MaskPassword(string? password)
         {
             if (string.IsNullOrEmpty(password))
                 return password;
-            return "****";
+            return MaskedSentinel;
         }
+
+        public const string MaskedSentinel = "__MASKED__";
 
         private static bool IsMasked(string value)
         {
-            return value.Contains("****");
+            return value == MaskedSentinel;
         }
     }
 }
