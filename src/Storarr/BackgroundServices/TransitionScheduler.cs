@@ -26,6 +26,7 @@ namespace Storarr.BackgroundServices
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                await BackgroundServiceLock.GlobalLock.WaitAsync(stoppingToken);
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -33,9 +34,17 @@ namespace Storarr.BackgroundServices
 
                     await transitionService.CheckAndProcessTransitions();
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in TransitionScheduler");
+                }
+                finally
+                {
+                    BackgroundServiceLock.GlobalLock.Release();
                 }
 
                 await Task.Delay(_interval, stoppingToken);

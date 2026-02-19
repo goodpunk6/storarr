@@ -32,6 +32,7 @@ namespace Storarr.BackgroundServices
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                await BackgroundServiceLock.GlobalLock.WaitAsync(stoppingToken);
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -43,9 +44,17 @@ namespace Storarr.BackgroundServices
 
                     await MonitorDownloads(dbContext, sonarrService, radarrService, fileService, hubContext);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in DownloadMonitor");
+                }
+                finally
+                {
+                    BackgroundServiceLock.GlobalLock.Release();
                 }
 
                 await Task.Delay(_interval, stoppingToken);
@@ -72,7 +81,8 @@ namespace Storarr.BackgroundServices
 
             foreach (var item in downloadingItems)
             {
-                bool stillDownloading = false;
+                // Determine download status — null means inconclusive (no Arr service linked)
+                bool? stillDownloading = null;
 
                 if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                 {
@@ -82,9 +92,15 @@ namespace Storarr.BackgroundServices
                 {
                     stillDownloading = radarrQueue.Any(q => q.MovieId == item.RadarrId.Value);
                 }
+                else
+                {
+                    // No Arr service linked — skip rather than incorrectly assuming download completed
+                    _logger.LogWarning("[DownloadMonitor] Item '{Title}' has no Arr service linked, skipping completion check", item.Title);
+                    continue;
+                }
 
-                // Check if file exists now
-                if (!stillDownloading && await fileService.FileExists(item.FilePath))
+                // Check if file exists now that we know the download is not active
+                if (!stillDownloading.Value && await fileService.FileExists(item.FilePath))
                 {
                     var isSymlink = await fileService.IsSymlink(item.FilePath);
 

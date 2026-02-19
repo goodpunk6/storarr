@@ -46,7 +46,7 @@ namespace Storarr.Services
 
         private async Task<Config> GetConfig()
         {
-            return await _dbContext.Configs.FindAsync(1) ?? new Config();
+            return await _dbContext.Configs.FindAsync(Config.SingletonId) ?? new Config();
         }
 
         public async Task TestConnection()
@@ -130,7 +130,8 @@ namespace Storarr.Services
                     mediaType,
                     mediaId = tmdbId,
                     tvdbId,
-                    seasons = type == MediaType.Movie ? null : new[] { 1 } // Request all seasons
+                    // Pass null so Jellyseerr requests all available seasons (previously hardcoded new[] { 1 } only requested season 1)
+                    seasons = (int[]?)null
                 };
 
                 var json = JsonSerializer.Serialize(requestBody);
