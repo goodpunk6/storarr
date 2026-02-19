@@ -21,17 +21,20 @@ namespace Storarr.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ActivityLogDto>>> GetActivity(
+        public async Task<ActionResult<ActivityPageDto>> GetActivity(
             [FromQuery] int? mediaItemId = null,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
             var query = _dbContext.ActivityLogs
+                .AsNoTracking()
                 .Include(a => a.MediaItem)
                 .AsQueryable();
 
             if (mediaItemId.HasValue)
                 query = query.Where(a => a.MediaItemId == mediaItemId.Value);
+
+            var totalCount = await query.CountAsync();
 
             var logs = await query
                 .OrderByDescending(a => a.Timestamp)
@@ -50,7 +53,7 @@ namespace Storarr.Controllers
                 })
                 .ToListAsync();
 
-            return Ok(logs);
+            return Ok(new ActivityPageDto { Items = logs, TotalCount = totalCount });
         }
     }
 }

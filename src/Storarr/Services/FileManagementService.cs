@@ -2,32 +2,55 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Storarr.Data;
+using Storarr.Models;
 
 namespace Storarr.Services
 {
     public class FileManagementService : IFileManagementService
     {
         private readonly ILogger<FileManagementService> _logger;
+        private readonly StorarrDbContext _dbContext;
 
-        public FileManagementService(ILogger<FileManagementService> logger)
+        public FileManagementService(ILogger<FileManagementService> logger, StorarrDbContext dbContext)
         {
             _logger = logger;
+            _dbContext = dbContext;
+        }
+
+        /// <summary>
+        /// Validates that the given path is within the configured media library to prevent path traversal attacks.
+        /// </summary>
+        public async Task ValidatePath(string path)
+        {
+            var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
+            var allowedBase = Path.GetFullPath(config?.MediaLibraryPath ?? "/media");
+            var fullPath = Path.GetFullPath(path);
+
+            if (!fullPath.StartsWith(allowedBase, StringComparison.OrdinalIgnoreCase))
+                throw new UnauthorizedAccessException($"Path '{path}' is outside the allowed media directory.");
         }
 
         public Task<bool> IsSymlink(string path)
         {
-            return Task.Run(() =>
+            return Task.Run(async () =>
             {
                 try
                 {
-                    if (!File.Exists(path))
+                    await ValidatePath(path);
+
+                    if (!File.Exists(path) && !Directory.Exists(path))
                         return false;
 
                     var attributes = File.GetAttributes(path);
                     return attributes.HasFlag(FileAttributes.ReparsePoint);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -39,20 +62,19 @@ namespace Storarr.Services
 
         public async Task<string?> GetSymlinkTarget(string path)
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
                 try
                 {
-                    // Simplified symlink target resolution
-                    // On Linux/Mac this would use readlink
-                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        _logger.LogWarning("Symlink target resolution not fully supported on Windows");
-                        return (string?)null;
-                    }
+                    await ValidatePath(path);
 
-                    // Basic implementation - in production would use native calls
-                    return (string?)null;
+                    // .NET 6+: FileInfo.LinkTarget resolves symlinks natively
+                    var info = new FileInfo(path);
+                    return info.LinkTarget;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -64,10 +86,12 @@ namespace Storarr.Services
 
         public Task DeleteFile(string path)
         {
-            return Task.Run(() =>
+            return Task.Run(async () =>
             {
                 try
                 {
+                    await ValidatePath(path);
+
                     if (File.Exists(path))
                     {
                         File.Delete(path);
@@ -75,9 +99,14 @@ namespace Storarr.Services
                     }
                     else if (Directory.Exists(path))
                     {
-                        Directory.Delete(path, recursive: true);
+                        // Do NOT delete recursively — only delete an empty directory
+                        Directory.Delete(path, recursive: false);
                         _logger.LogInformation("Deleted directory {Path}", path);
                     }
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -89,15 +118,21 @@ namespace Storarr.Services
 
         public Task<long> GetFileSize(string path)
         {
-            return Task.Run(() =>
+            return Task.Run(async () =>
             {
                 try
                 {
+                    await ValidatePath(path);
+
                     if (!File.Exists(path))
                         return 0L;
 
                     var fileInfo = new FileInfo(path);
                     return fileInfo.Length;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -107,9 +142,21 @@ namespace Storarr.Services
             });
         }
 
-        public Task<bool> FileExists(string path)
+        public async Task<bool> FileExists(string path)
         {
-            return Task.FromResult(File.Exists(path));
+            try
+            {
+                await ValidatePath(path);
+                return File.Exists(path);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public Task<IEnumerable<MediaFileInfo>> ScanDirectory(string path, bool recursive = true)
@@ -123,7 +170,7 @@ namespace Storarr.Services
                     if (!Directory.Exists(path))
                     {
                         _logger.LogWarning("Directory {Path} does not exist", path);
-                        return result;
+                        return result.AsEnumerable();
                     }
 
                     var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
@@ -138,14 +185,18 @@ namespace Storarr.Services
                                 continue;
 
                             var fileInfo = new FileInfo(file);
-                            var isSymlink = extension == ".strm" || IsSymlink(file).Result;
+                            var attributes = fileInfo.Attributes;
+                            var isSymlink = extension == ".strm" || attributes.HasFlag(FileAttributes.ReparsePoint);
+
+                            // Use .NET 6 FileInfo.LinkTarget directly (no async .Result needed)
+                            string? symlinkTarget = isSymlink ? fileInfo.LinkTarget : null;
 
                             result.Add(new MediaFileInfo
                             {
                                 Path = file,
                                 Name = fileInfo.Name,
                                 IsSymlink = isSymlink,
-                                SymlinkTarget = isSymlink ? GetSymlinkTarget(file).Result : null,
+                                SymlinkTarget = symlinkTarget,
                                 Size = fileInfo.Length,
                                 LastModified = fileInfo.LastWriteTimeUtc
                             });
