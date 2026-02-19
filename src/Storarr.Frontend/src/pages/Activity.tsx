@@ -4,16 +4,20 @@ import { Clock } from 'lucide-react'
 import { getActivity } from '../api/client'
 import { ActivityLog } from '../stores/appStore'
 
+const PAGE_SIZE = 50
+
 export default function Activity() {
   const [logs, setLogs] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
 
   useEffect(() => {
     const fetchActivity = async () => {
       try {
-        const response = await getActivity({ page, pageSize: 50 })
-        setLogs(response.data)
+        const response = await getActivity({ page, pageSize: PAGE_SIZE })
+        setLogs(response.data.items)
+        setTotalCount(response.data.totalCount)
       } catch (error) {
         console.error('Failed to fetch activity:', error)
       } finally {
@@ -41,6 +45,8 @@ export default function Activity() {
         return 'bg-arr-primary text-arr-muted'
     }
   }
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   if (loading) {
     return (
@@ -103,10 +109,12 @@ export default function Activity() {
         >
           Previous
         </button>
-        <span className="px-4 py-2 text-arr-muted">Page {page}</span>
+        <span className="px-4 py-2 text-arr-muted">
+          Page {page}{totalPages > 0 ? ` of ${totalPages}` : ''}
+        </span>
         <button
           onClick={() => setPage(p => p + 1)}
-          disabled={logs.length < 50}
+          disabled={page >= totalPages}
           className="px-4 py-2 bg-arr-card rounded-lg disabled:opacity-50 hover:bg-arr-primary transition-colors"
         >
           Next

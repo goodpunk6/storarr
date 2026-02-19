@@ -19,6 +19,10 @@ interface DownloadClientConfig {
   apiKey?: string
 }
 
+// Sentinel value the backend sends for any configured API key / password.
+// Send it back unchanged to indicate 'do not modify this secret'.
+const MASKED_SENTINEL = '__MASKED__'
+
 const TIME_UNITS: TimeUnit[] = ['Minutes', 'Hours', 'Days', 'Weeks', 'Months']
 const DOWNLOAD_CLIENT_TYPES: DownloadClientType[] = ['QBittorrent', 'Transmission', 'Sabnzbd']
 
@@ -168,10 +172,10 @@ export default function Settings() {
       })
 
       await updateConfig(apiData)
-      alert('Configuration saved successfully!')
+      // Config saved successfully
     } catch (error) {
       console.error('Failed to save config:', error)
-      alert('Failed to save configuration')
+      console.error('Failed to save configuration')
     } finally {
       setSaving(false)
     }
@@ -194,10 +198,10 @@ export default function Settings() {
     setProcessing(true)
     try {
       await processTransitions()
-      alert('Transition processing triggered!')
+      // Transition processing triggered
     } catch (error) {
       console.error('Failed to process transitions:', error)
-      alert('Failed to process transitions')
+      console.error('Failed to process transitions')
     } finally {
       setProcessing(false)
     }

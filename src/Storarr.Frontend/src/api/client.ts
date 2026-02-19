@@ -8,6 +8,17 @@ const api = axios.create({
 })
 
 // Dashboard
+// Global response interceptor: log API errors centrally
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status
+    const url = error.config?.url ?? 'unknown'
+    console.error(`API error ${status} on ${url}:`, error.message)
+    return Promise.reject(error)
+  }
+)
+
 export const getDashboard = () => api.get('/dashboard')
 
 // Media
