@@ -9,7 +9,47 @@ import Activity from './pages/Activity'
 import Settings from './pages/Settings'
 import FirstRunWizard from './components/FirstRunWizard'
 import { getConfig } from './api/client'
-import { useAppStore } from './stores/appStore'
+import { useAppStore, Config } from './stores/appStore'
+
+function mapApiConfigToStore(apiConfig: any): Config {
+  return {
+    firstRunComplete: apiConfig.firstRunComplete,
+    libraryMode: apiConfig.libraryMode,
+    symlinkToMkvValue: apiConfig.symlinkToMkvValue,
+    symlinkToMkvUnit: apiConfig.symlinkToMkvUnit,
+    mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
+    mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
+    mediaLibraryPath: apiConfig.mediaLibraryPath,
+    jellyfinUrl: apiConfig.jellyfinUrl,
+    jellyfinApiKey: apiConfig.jellyfinApiKey,
+    jellyseerrUrl: apiConfig.jellyseerrUrl,
+    jellyseerrApiKey: apiConfig.jellyseerrApiKey,
+    sonarrUrl: apiConfig.sonarrUrl,
+    sonarrApiKey: apiConfig.sonarrApiKey,
+    radarrUrl: apiConfig.radarrUrl,
+    radarrApiKey: apiConfig.radarrApiKey,
+    downloadClient1: {
+      enabled: apiConfig.downloadClient1Enabled,
+      type: apiConfig.downloadClient1Type,
+      url: apiConfig.downloadClient1Url,
+      username: apiConfig.downloadClient1Username,
+      password: apiConfig.downloadClient1Password,
+    },
+    downloadClient2: {
+      enabled: apiConfig.downloadClient2Enabled,
+      type: apiConfig.downloadClient2Type,
+      url: apiConfig.downloadClient2Url,
+      username: apiConfig.downloadClient2Username,
+      password: apiConfig.downloadClient2Password,
+    },
+    downloadClient3: {
+      enabled: apiConfig.downloadClient3Enabled,
+      type: apiConfig.downloadClient3Type,
+      url: apiConfig.downloadClient3Url,
+      apiKey: apiConfig.downloadClient3ApiKey,
+    },
+  }
+}
 
 function App() {
   const [loading, setLoading] = useState(true)
@@ -19,49 +59,8 @@ function App() {
     const fetchConfig = async () => {
       try {
         const response = await getConfig()
-        const apiConfig = response.data
-        
-        const config = {
-          firstRunComplete: apiConfig.firstRunComplete,
-          libraryMode: apiConfig.libraryMode,
-          symlinkToMkvValue: apiConfig.symlinkToMkvValue,
-          symlinkToMkvUnit: apiConfig.symlinkToMkvUnit,
-          mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
-          mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
-          mediaLibraryPath: apiConfig.mediaLibraryPath,
-          jellyfinUrl: apiConfig.jellyfinUrl,
-          jellyfinApiKey: apiConfig.jellyfinApiKey,
-          jellyseerrUrl: apiConfig.jellyseerrUrl,
-          jellyseerrApiKey: apiConfig.jellyseerrApiKey,
-          sonarrUrl: apiConfig.sonarrUrl,
-          sonarrApiKey: apiConfig.sonarrApiKey,
-          radarrUrl: apiConfig.radarrUrl,
-          radarrApiKey: apiConfig.radarrApiKey,
-          downloadClient1: {
-            enabled: apiConfig.downloadClient1Enabled,
-            type: apiConfig.downloadClient1Type,
-            url: apiConfig.downloadClient1Url,
-            username: apiConfig.downloadClient1Username,
-            password: apiConfig.downloadClient1Password,
-          },
-          downloadClient2: {
-            enabled: apiConfig.downloadClient2Enabled,
-            type: apiConfig.downloadClient2Type,
-            url: apiConfig.downloadClient2Url,
-            username: apiConfig.downloadClient2Username,
-            password: apiConfig.downloadClient2Password,
-          },
-          downloadClient3: {
-            enabled: apiConfig.downloadClient3Enabled,
-            type: apiConfig.downloadClient3Type,
-            url: apiConfig.downloadClient3Url,
-            apiKey: apiConfig.downloadClient3ApiKey,
-          },
-        }
-        
-        setConfig(config)
-        
-        if (!apiConfig.firstRunComplete) {
+        setConfig(mapApiConfigToStore(response.data))
+        if (!response.data.firstRunComplete) {
           setShowFirstRun(true)
         }
       } catch (error) {
@@ -76,48 +75,9 @@ function App() {
 
   const handleFirstRunComplete = async () => {
     setShowFirstRun(false)
-    // Refetch config to get updated state
     try {
       const response = await getConfig()
-      const apiConfig = response.data
-      const config = {
-        firstRunComplete: apiConfig.firstRunComplete,
-        libraryMode: apiConfig.libraryMode,
-        symlinkToMkvValue: apiConfig.symlinkToMkvValue,
-        symlinkToMkvUnit: apiConfig.symlinkToMkvUnit,
-        mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
-        mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
-        mediaLibraryPath: apiConfig.mediaLibraryPath,
-        jellyfinUrl: apiConfig.jellyfinUrl,
-        jellyfinApiKey: apiConfig.jellyfinApiKey,
-        jellyseerrUrl: apiConfig.jellyseerrUrl,
-        jellyseerrApiKey: apiConfig.jellyseerrApiKey,
-        sonarrUrl: apiConfig.sonarrUrl,
-        sonarrApiKey: apiConfig.sonarrApiKey,
-        radarrUrl: apiConfig.radarrUrl,
-        radarrApiKey: apiConfig.radarrApiKey,
-        downloadClient1: {
-          enabled: apiConfig.downloadClient1Enabled,
-          type: apiConfig.downloadClient1Type,
-          url: apiConfig.downloadClient1Url,
-          username: apiConfig.downloadClient1Username,
-          password: apiConfig.downloadClient1Password,
-        },
-        downloadClient2: {
-          enabled: apiConfig.downloadClient2Enabled,
-          type: apiConfig.downloadClient2Type,
-          url: apiConfig.downloadClient2Url,
-          username: apiConfig.downloadClient2Username,
-          password: apiConfig.downloadClient2Password,
-        },
-        downloadClient3: {
-          enabled: apiConfig.downloadClient3Enabled,
-          type: apiConfig.downloadClient3Type,
-          url: apiConfig.downloadClient3Url,
-          apiKey: apiConfig.downloadClient3ApiKey,
-        },
-      }
-      setConfig(config)
+      setConfig(mapApiConfigToStore(response.data))
     } catch (error) {
       console.error('Failed to refetch config:', error)
     }
