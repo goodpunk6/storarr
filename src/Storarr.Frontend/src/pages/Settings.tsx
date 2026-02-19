@@ -19,10 +19,6 @@ interface DownloadClientConfig {
   apiKey?: string
 }
 
-// Sentinel value the backend sends for any configured API key / password.
-// Send it back unchanged to indicate 'do not modify this secret'.
-const MASKED_SENTINEL = '__MASKED__'
-
 const TIME_UNITS: TimeUnit[] = ['Minutes', 'Hours', 'Days', 'Weeks', 'Months']
 const DOWNLOAD_CLIENT_TYPES: DownloadClientType[] = ['QBittorrent', 'Transmission', 'Sabnzbd']
 

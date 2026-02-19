@@ -15,14 +15,11 @@ export function useSignalR() {
       useAppStore.getState().setLastMediaUpdate(Date.now())
     })
 
-    let stopped = false
-
     connection.start()
       .then(() => console.log('SignalR connected'))
       .catch((err) => console.error('SignalR connection error:', err))
 
     return () => {
-      stopped = true
       connection.stop().catch(() => {
         // Ignore stop errors on cleanup
       })
