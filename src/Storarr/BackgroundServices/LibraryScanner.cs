@@ -35,6 +35,7 @@ namespace Storarr.BackgroundServices
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                await BackgroundServiceLock.GlobalLock.WaitAsync(stoppingToken);
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -45,9 +46,17 @@ namespace Storarr.BackgroundServices
 
                     await ScanLibrary(dbContext, fileService, sonarrService, radarrService);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in LibraryScanner");
+                }
+                finally
+                {
+                    BackgroundServiceLock.GlobalLock.Release();
                 }
 
                 await Task.Delay(_interval, stoppingToken);
@@ -60,7 +69,7 @@ namespace Storarr.BackgroundServices
             ISonarrService sonarrService,
             IRadarrService radarrService)
         {
-            var config = await dbContext.Configs.FindAsync(1);
+            var config = await dbContext.Configs.FindAsync(Config.SingletonId);
             if (string.IsNullOrEmpty(config?.MediaLibraryPath) || !Directory.Exists(config.MediaLibraryPath))
             {
                 _logger.LogDebug("Media library path not configured or doesn't exist");
@@ -70,7 +79,7 @@ namespace Storarr.BackgroundServices
             _logger.LogInformation("Scanning media library at {Path}", config.MediaLibraryPath);
 
             // Fetch all series from Sonarr and movies from Radarr for ID matching
-            // Key is the relative path within the media library (e.g., "tv/series name")
+            // Key is the relative path within the media library
             Dictionary<string, SeriesInfo> seriesByPath = new();
             Dictionary<string, MovieInfo> moviesByPath = new();
 
@@ -81,8 +90,7 @@ namespace Storarr.BackgroundServices
                 {
                     if (!string.IsNullOrEmpty(s.Path))
                     {
-                        // Extract the relative path part (e.g., "tv/series name" from "/data/media/tv/series name")
-                        var relativePath = ExtractRelativePath(s.Path);
+                        var relativePath = ExtractRelativePath(s.Path, config.MediaLibraryPath);
                         seriesByPath[relativePath] = new SeriesInfo
                         {
                             Id = s.Id,
@@ -108,8 +116,7 @@ namespace Storarr.BackgroundServices
                 {
                     if (!string.IsNullOrEmpty(m.Path))
                     {
-                        // Extract the relative path part (e.g., "movies/movie name" from "/data/media/movies/movie name")
-                        var relativePath = ExtractRelativePath(m.Path);
+                        var relativePath = ExtractRelativePath(m.Path, config.MediaLibraryPath);
                         moviesByPath[relativePath] = new MovieInfo
                         {
                             Id = m.Id,
@@ -129,7 +136,13 @@ namespace Storarr.BackgroundServices
             }
 
             var files = await fileService.ScanDirectory(config.MediaLibraryPath);
-            var existingPaths = await dbContext.MediaItems.Select(m => m.FilePath).ToListAsync();
+
+            // Load all existing items into a dictionary to avoid N+1 queries
+            var existingItems = await dbContext.MediaItems.ToListAsync();
+            var existingItemsByPath = existingItems.ToDictionary(
+                m => m.FilePath,
+                StringComparer.OrdinalIgnoreCase);
+            var existingPaths = existingItemsByPath.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // Find new files
             var newFiles = files.Where(f => !existingPaths.Contains(f.Path)).ToList();
@@ -168,59 +181,57 @@ namespace Storarr.BackgroundServices
             var existingFiles = files.Where(f => existingPaths.Contains(f.Path)).ToList();
             foreach (var file in existingFiles)
             {
-                var item = await dbContext.MediaItems.FirstOrDefaultAsync(m => m.FilePath == file.Path);
-                if (item != null)
+                if (!existingItemsByPath.TryGetValue(file.Path, out var item))
+                    continue;
+
+                var expectedState = file.IsSymlink ? FileState.Symlink : FileState.Mkv;
+
+                if (item.CurrentState != expectedState &&
+                    item.CurrentState != FileState.Downloading &&
+                    item.CurrentState != FileState.PendingSymlink)
                 {
-                    var expectedState = file.IsSymlink ? FileState.Symlink : FileState.Mkv;
-
-                    if (item.CurrentState != expectedState &&
-                        item.CurrentState != FileState.Downloading &&
-                        item.CurrentState != FileState.PendingSymlink)
-                    {
-                        _logger.LogInformation("[LibraryScanner] State changed for {Title}: {OldState} -> {NewState}",
-                            item.Title, item.CurrentState, expectedState);
-                        item.CurrentState = expectedState;
-                        item.StateChangedAt = DateTime.UtcNow;
-                    }
-
-                    // Link to Arr services if not already linked
-                    if (!item.SonarrId.HasValue && !item.RadarrId.HasValue)
-                    {
-                        var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrService(file.Path, config.MediaLibraryPath, item.Type, seriesByPath, moviesByPath);
-                        if (sonarrId.HasValue || radarrId.HasValue)
-                        {
-                            item.SonarrId = sonarrId;
-                            item.RadarrId = radarrId;
-                            item.TvdbId = tvdbId;
-                            item.TmdbId = tmdbId;
-                            if (!string.IsNullOrEmpty(title) && item.Title != title)
-                            {
-                                item.Title = title;
-                            }
-                            _logger.LogInformation("[LibraryScanner] Linked existing item {Title} to Arr service (SonarrId={SonarrId}, RadarrId={RadarrId})",
-                                item.Title, item.SonarrId, item.RadarrId);
-                        }
-                    }
-
-                    item.FileSize = file.Size;
+                    _logger.LogInformation("[LibraryScanner] State changed for {Title}: {OldState} -> {NewState}",
+                        item.Title, item.CurrentState, expectedState);
+                    item.CurrentState = expectedState;
+                    item.StateChangedAt = DateTime.UtcNow;
                 }
+
+                // Link to Arr services if not already linked
+                if (!item.SonarrId.HasValue && !item.RadarrId.HasValue)
+                {
+                    var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrService(file.Path, config.MediaLibraryPath, item.Type, seriesByPath, moviesByPath);
+                    if (sonarrId.HasValue || radarrId.HasValue)
+                    {
+                        item.SonarrId = sonarrId;
+                        item.RadarrId = radarrId;
+                        item.TvdbId = tvdbId;
+                        item.TmdbId = tmdbId;
+                        if (!string.IsNullOrEmpty(title) && item.Title != title)
+                        {
+                            item.Title = title;
+                        }
+                        _logger.LogInformation("[LibraryScanner] Linked existing item {Title} to Arr service (SonarrId={SonarrId}, RadarrId={RadarrId})",
+                            item.Title, item.SonarrId, item.RadarrId);
+                    }
+                }
+
+                item.FileSize = file.Size;
             }
 
             // Find deleted files
-            var filePaths = files.Select(f => f.Path).ToList();
+            var filePaths = files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var deletedPaths = existingPaths.Where(p => !filePaths.Contains(p)).ToList();
             foreach (var path in deletedPaths)
             {
-                var item = await dbContext.MediaItems.FirstOrDefaultAsync(m => m.FilePath == path);
-                if (item != null)
+                if (!existingItemsByPath.TryGetValue(path, out var item))
+                    continue;
+
+                // If file is gone and we were downloading, mark as pending symlink
+                if (item.CurrentState == FileState.Downloading)
                 {
-                    // If file is gone and we were downloading, mark as pending symlink
-                    if (item.CurrentState == FileState.Downloading)
-                    {
-                        item.CurrentState = FileState.PendingSymlink;
-                    }
-                    _logger.LogWarning("[LibraryScanner] Media file no longer exists: {Path}", path);
+                    item.CurrentState = FileState.PendingSymlink;
                 }
+                _logger.LogWarning("[LibraryScanner] Media file no longer exists: {Path}", path);
             }
 
             await dbContext.SaveChangesAsync();
@@ -229,35 +240,19 @@ namespace Storarr.BackgroundServices
         }
 
         /// <summary>
-        /// Extract the relative media path from an absolute path.
-        /// Handles various path formats like /data/media/tv/..., /media/tv/..., etc.
+        /// Extracts the relative path within the media library by stripping the configured
+        /// media library path prefix. Falls back to the last two path components.
         /// </summary>
-        private string ExtractRelativePath(string absolutePath)
+        private string ExtractRelativePath(string absolutePath, string mediaLibraryPath)
         {
-            var normalized = absolutePath.Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
+            var normalizedPath = absolutePath.Replace('\\', '/').TrimEnd('/');
+            var normalizedBase = mediaLibraryPath.Replace('\\', '/').TrimEnd('/');
 
-            // Common media root directories to strip
-            var prefixes = new[] { "/data/media/", "/media/", "/data/tv/", "/data/movies/" };
-
-            foreach (var prefix in prefixes)
-            {
-                if (normalized.StartsWith(prefix))
-                {
-                    return normalized.Substring(prefix.Length);
-                }
-            }
-
-            // If no known prefix, try to extract tv/ or movies/ part
-            var parts = normalized.Split('/');
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (parts[i] == "tv" || parts[i] == "movies" || parts[i] == "anime")
-                {
-                    return string.Join("/", parts.Skip(i));
-                }
-            }
+            if (normalizedPath.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
+                return normalizedPath.Substring(normalizedBase.Length).TrimStart('/').ToLowerInvariant();
 
             // Fallback: return the last two directory components
+            var parts = normalizedPath.ToLowerInvariant().Split('/');
             return string.Join("/", parts.TakeLast(2));
         }
 

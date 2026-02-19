@@ -44,7 +44,44 @@ namespace Storarr.Services
             _logger.LogInformation("[TransitionService] Transitioning {Title} from symlink to MKV", item.Title);
             try
             {
-                // First, try to delete via Sonarr/Radarr API so their internal state is updated
+                // STEP 1: Trigger search FIRST before deleting, so we can abort if search fails
+                bool searchTriggered = false;
+
+                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                {
+                    _logger.LogDebug("[TransitionService] Triggering Radarr search for movie ID: {Id}", item.RadarrId.Value);
+                    try
+                    {
+                        await _radarrService.TriggerSearch(item.RadarrId.Value);
+                        searchTriggered = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[TransitionService] Radarr search failed for {Title}, aborting deletion", item.Title);
+                        throw;
+                    }
+                }
+                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                {
+                    _logger.LogDebug("[TransitionService] Triggering Sonarr search for series ID: {Id}", item.SonarrId.Value);
+                    try
+                    {
+                        await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                        searchTriggered = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[TransitionService] Sonarr search failed for {Title}, aborting deletion", item.Title);
+                        throw;
+                    }
+                }
+
+                if (!searchTriggered)
+                {
+                    _logger.LogWarning("[TransitionService] No Arr service configured for {Title}, proceeding with deletion anyway", item.Title);
+                }
+
+                // STEP 2: Delete the file now that the search is confirmed
                 bool apiDeleted = false;
 
                 if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
@@ -63,18 +100,6 @@ namespace Storarr.Services
                 {
                     _logger.LogDebug("[TransitionService] Deleting file from disk: {Path}", item.FilePath);
                     await _fileService.DeleteFile(item.FilePath);
-                }
-
-                // Trigger search to re-download
-                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Triggering Radarr search for movie ID: {Id}", item.RadarrId.Value);
-                    await _radarrService.TriggerSearch(item.RadarrId.Value);
-                }
-                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Triggering Sonarr search for series ID: {Id}", item.SonarrId.Value);
-                    await _sonarrService.TriggerSearch(item.SonarrId.Value);
                 }
 
                 var previousState = item.CurrentState;
@@ -98,6 +123,14 @@ namespace Storarr.Services
         public async Task TransitionToSymlink(MediaItem item)
         {
             _logger.LogInformation("[TransitionService] Transitioning {Title} from MKV to symlink", item.Title);
+
+            // Abort if TmdbId is null — we cannot create a Jellyseerr request without it
+            if (!item.TmdbId.HasValue)
+            {
+                _logger.LogWarning("[TransitionService] Cannot transition {Title} to symlink: TmdbId is null. Aborting to avoid data loss.", item.Title);
+                return;
+            }
+
             try
             {
                 // First, try to delete via Sonarr/Radarr API so their internal state is updated
@@ -122,11 +155,8 @@ namespace Storarr.Services
                 }
 
                 // Create Jellyseerr request to re-download as symlink
-                if (item.TmdbId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Creating Jellyseerr request for TMDB ID: {Id}", item.TmdbId.Value);
-                    await _jellyseerrService.CreateRequest(item.TmdbId.Value, item.Type, item.TvdbId);
-                }
+                _logger.LogDebug("[TransitionService] Creating Jellyseerr request for TMDB ID: {Id}", item.TmdbId.Value);
+                await _jellyseerrService.CreateRequest(item.TmdbId.Value, item.Type, item.TvdbId);
 
                 var previousState = item.CurrentState;
                 item.CurrentState = FileState.PendingSymlink;
@@ -150,7 +180,7 @@ namespace Storarr.Services
         {
             _logger.LogDebug("[TransitionService] CheckAndProcessTransitions started");
 
-            var config = await _dbContext.Configs.FindAsync(1);
+            var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
             if (config == null)
             {
                 _logger.LogWarning("[TransitionService] No config found, skipping transitions");
@@ -169,9 +199,6 @@ namespace Storarr.Services
             var symlinkToMkvThreshold = config.GetSymlinkToMkvTimeSpan();
             var mkvToSymlinkThreshold = config.GetMkvToSymlinkTimeSpan();
 
-            _logger.LogDebug("[TransitionService] Thresholds - SymlinkToMkv: {SymlinkThreshold}, MkvToSymlink: {MkvThreshold}",
-                symlinkToMkvThreshold, mkvToSymlinkThreshold);
-
             // Only process items that are NOT excluded
             var symlinksToConvert = await _dbContext.MediaItems
                 .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded)
@@ -182,8 +209,6 @@ namespace Storarr.Services
             {
                 var lastWatched = item.LastWatchedAt ?? item.CreatedAt;
                 var timeSinceWatch = now - lastWatched;
-                _logger.LogDebug("[TransitionService] Symlink '{Title}' - TimeSinceWatch: {Time}, Threshold: {Threshold}, Excluded: {Excluded}",
-                    item.Title, timeSinceWatch, symlinkToMkvThreshold, item.IsExcluded);
 
                 if (timeSinceWatch >= symlinkToMkvThreshold)
                 {
@@ -204,8 +229,6 @@ namespace Storarr.Services
             {
                 var lastWatched = item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt;
                 var timeInactive = now - lastWatched;
-                _logger.LogDebug("[TransitionService] MKV '{Title}' - TimeInactive: {Time}, Threshold: {Threshold}, Excluded: {Excluded}",
-                    item.Title, timeInactive, mkvToSymlinkThreshold, item.IsExcluded);
 
                 if (timeInactive >= mkvToSymlinkThreshold)
                 {
@@ -221,7 +244,7 @@ namespace Storarr.Services
 
         public async Task<IEnumerable<TransitionCandidate>> GetUpcomingTransitions(int count = 10)
         {
-            var config = await _dbContext.Configs.FindAsync(1);
+            var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
             if (config == null) return Enumerable.Empty<TransitionCandidate>();
 
             var now = DateTime.UtcNow;
@@ -232,6 +255,7 @@ namespace Storarr.Services
 
             // Only include non-excluded items
             var symlinks = await _dbContext.MediaItems
+                .AsNoTracking()
                 .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded)
                 .OrderBy(m => m.LastWatchedAt ?? m.CreatedAt)
                 .Take(count)
@@ -250,7 +274,7 @@ namespace Storarr.Services
                         Title = item.Title,
                         CurrentState = FileState.Symlink,
                         TargetState = FileState.Mkv,
-                        DaysUntilTransition = Math.Max(0, (int)Math.Ceiling(timeRemaining.TotalDays)),
+                        DaysUntilTransition = (int)Math.Ceiling(timeRemaining.TotalDays),
                         TransitionDate = lastWatched + symlinkToMkvThreshold
                     });
                 }
@@ -258,6 +282,7 @@ namespace Storarr.Services
 
             // Only include non-excluded items
             var mkvs = await _dbContext.MediaItems
+                .AsNoTracking()
                 .Where(m => m.CurrentState == FileState.Mkv && !m.IsExcluded)
                 .OrderBy(m => m.LastWatchedAt ?? m.StateChangedAt ?? m.CreatedAt)
                 .Take(count)
@@ -276,7 +301,7 @@ namespace Storarr.Services
                         Title = item.Title,
                         CurrentState = FileState.Mkv,
                         TargetState = FileState.Symlink,
-                        DaysUntilTransition = Math.Max(0, (int)Math.Ceiling(timeRemaining.TotalDays)),
+                        DaysUntilTransition = (int)Math.Ceiling(timeRemaining.TotalDays),
                         TransitionDate = lastActive + mkvToSymlinkThreshold
                     });
                 }
@@ -285,7 +310,7 @@ namespace Storarr.Services
             return candidates.OrderBy(c => c.DaysUntilTransition).Take(count);
         }
 
-        private async Task LogActivity(int mediaItemId, string action, FileState fromState, FileState toState, string details = null)
+        private async Task LogActivity(int mediaItemId, string action, FileState fromState, FileState toState, string? details = null)
         {
             _dbContext.ActivityLogs.Add(new ActivityLog
             {

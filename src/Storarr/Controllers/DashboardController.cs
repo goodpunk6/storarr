@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Storarr.Data;
+using Storarr.DTOs;
 using Storarr.Models;
 using Storarr.Services;
 
@@ -36,14 +35,13 @@ namespace Storarr.Controllers
 
             try
             {
-                var items = await _dbContext.MediaItems.ToListAsync();
-
-                _logger.LogDebug("[DashboardController] Found {Count} media items", items.Count);
-
-                var symlinkCount = items.Count(m => m.CurrentState == FileState.Symlink);
-                var mkvCount = items.Count(m => m.CurrentState == FileState.Mkv);
-                var downloadingCount = items.Count(m => m.CurrentState == FileState.Downloading);
-                var pendingSymlinkCount = items.Count(m => m.CurrentState == FileState.PendingSymlink);
+                // Use CountAsync per state instead of loading all items into memory
+                var symlinkCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Symlink);
+                var mkvCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Mkv);
+                var downloadingCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Downloading);
+                var pendingSymlinkCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.PendingSymlink);
+                var totalItems = symlinkCount + mkvCount + downloadingCount + pendingSymlinkCount;
+                var totalSizeBytes = await _dbContext.MediaItems.AsNoTracking().SumAsync(m => m.FileSize ?? 0);
 
                 _logger.LogDebug("[DashboardController] State breakdown - Symlinks: {Symlink}, MKVs: {Mkv}, Downloading: {Downloading}, Pending: {Pending}",
                     symlinkCount, mkvCount, downloadingCount, pendingSymlinkCount);
@@ -53,12 +51,12 @@ namespace Storarr.Controllers
 
                 var dashboard = new DashboardDto
                 {
-                    TotalItems = items.Count,
+                    TotalItems = totalItems,
                     SymlinkCount = symlinkCount,
                     MkvCount = mkvCount,
                     DownloadingCount = downloadingCount,
                     PendingSymlinkCount = pendingSymlinkCount,
-                    TotalSizeBytes = items.Sum(m => m.FileSize ?? 0),
+                    TotalSizeBytes = totalSizeBytes,
                     UpcomingTransitions = upcomingTransitions
                         .Select(t => new TransitionDto
                         {
@@ -79,26 +77,5 @@ namespace Storarr.Controllers
                 return StatusCode(500, new { error = ex.Message });
             }
         }
-    }
-
-    public class DashboardDto
-    {
-        public int TotalItems { get; set; }
-        public int SymlinkCount { get; set; }
-        public int MkvCount { get; set; }
-        public int DownloadingCount { get; set; }
-        public int PendingSymlinkCount { get; set; }
-        public long TotalSizeBytes { get; set; }
-        public List<TransitionDto> UpcomingTransitions { get; set; } = new List<TransitionDto>();
-    }
-
-    public class TransitionDto
-    {
-        public int MediaItemId { get; set; }
-        public string Title { get; set; } = string.Empty;
-        public string CurrentState { get; set; } = string.Empty;
-        public string TargetState { get; set; } = string.Empty;
-        public int DaysUntilTransition { get; set; }
-        public DateTime? TransitionDate { get; set; }
     }
 }
