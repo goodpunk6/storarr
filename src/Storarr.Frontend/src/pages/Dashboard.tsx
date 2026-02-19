@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Link2, HardDrive, Download, Clock } from 'lucide-react'
 import { getDashboard } from '../api/client'
 import StatCard from '../components/StatCard'
-import TransitionRow from '../components/MediaCard'
+import TransitionRow from '../components/TransitionRow'
 import { useAppStore, Transition } from '../stores/appStore'
 
 interface DashboardData {

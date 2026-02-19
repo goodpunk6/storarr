@@ -47,36 +47,24 @@ namespace Storarr.Controllers
 
             try
             {
-                var query = _dbContext.MediaItems.AsQueryable();
+                var query = _dbContext.MediaItems.AsNoTracking().AsQueryable();
 
                 if (state.HasValue)
-                {
-                    _logger.LogDebug("[MediaController] Filtering by state: {State}", state.Value);
                     query = query.Where(m => m.CurrentState == state.Value);
-                }
 
                 if (type.HasValue)
-                {
-                    _logger.LogDebug("[MediaController] Filtering by type: {Type}", type.Value);
                     query = query.Where(m => m.Type == type.Value);
-                }
 
                 if (!string.IsNullOrEmpty(search))
-                {
-                    _logger.LogDebug("[MediaController] Searching for: {Search}", search);
                     query = query.Where(m => m.Title.Contains(search));
-                }
 
                 if (excluded.HasValue)
-                {
-                    _logger.LogDebug("[MediaController] Filtering by excluded: {Excluded}", excluded.Value);
                     query = query.Where(m => m.IsExcluded == excluded.Value);
-                }
 
                 var totalCount = await query.CountAsync();
                 _logger.LogDebug("[MediaController] Total items matching query: {Count}", totalCount);
 
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 var now = DateTime.UtcNow;
 
                 var items = await query
@@ -95,7 +83,8 @@ namespace Storarr.Controllers
                         EpisodeNumber = m.EpisodeNumber,
                         FileSize = m.FileSize,
                         IsExcluded = m.IsExcluded,
-                        DaysUntilTransition = CalculateDaysUntilTransition(m, config, now)
+                        DaysUntilTransition = CalculateDaysUntilTransition(m, config, now),
+                        IsOverdue = IsTransitionOverdue(m, config, now)
                     })
                     .ToListAsync();
 
@@ -123,10 +112,7 @@ namespace Storarr.Controllers
                     return NotFound();
                 }
 
-                _logger.LogDebug("[MediaController] Found media item: {Title}, State: {State}, Type: {Type}",
-                    item.Title, item.CurrentState, item.Type);
-
-                var config = await _dbContext.Configs.FindAsync(1);
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                 var now = DateTime.UtcNow;
 
                 var dto = new MediaItemDto
@@ -147,6 +133,7 @@ namespace Storarr.Controllers
                     FileSize = item.FileSize,
                     IsExcluded = item.IsExcluded,
                     DaysUntilTransition = CalculateDaysUntilTransition(item, config, now),
+                    IsOverdue = IsTransitionOverdue(item, config, now),
                     TransitionType = GetTransitionType(item, config)
                 };
 
@@ -298,6 +285,9 @@ namespace Storarr.Controllers
 
             try
             {
+                // Validate path is within allowed directory
+                await _fileService.ValidatePath(dto.FilePath);
+
                 var exists = await _dbContext.MediaItems.AnyAsync(m => m.FilePath == dto.FilePath);
                 if (exists)
                 {
@@ -336,6 +326,11 @@ namespace Storarr.Controllers
 
                 return CreatedAtAction(nameof(GetMedia), new { id = item.Id }, item);
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "[MediaController] Path traversal attempt in CreateMedia");
+                return BadRequest(new { error = ex.Message });
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[MediaController] Error in CreateMedia");
@@ -343,16 +338,25 @@ namespace Storarr.Controllers
             }
         }
 
+        /// <summary>
+        /// Returns the number of days until transition. Negative values indicate the transition is overdue.
+        /// </summary>
         private static int? CalculateDaysUntilTransition(MediaItem item, Config? config, DateTime now)
         {
             if (config == null || item.IsExcluded) return null;
 
             return item.CurrentState switch
             {
-                FileState.Symlink => Math.Max(0, (int)(config.GetSymlinkToMkvTimeSpan() - (now - (item.LastWatchedAt ?? item.CreatedAt))).TotalDays),
-                FileState.Mkv => Math.Max(0, (int)(config.GetMkvToSymlinkTimeSpan() - (now - (item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt))).TotalDays),
+                FileState.Symlink => (int)(config.GetSymlinkToMkvTimeSpan() - (now - (item.LastWatchedAt ?? item.CreatedAt))).TotalDays,
+                FileState.Mkv => (int)(config.GetMkvToSymlinkTimeSpan() - (now - (item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt))).TotalDays,
                 _ => null
             };
+        }
+
+        private static bool IsTransitionOverdue(MediaItem item, Config? config, DateTime now)
+        {
+            var days = CalculateDaysUntilTransition(item, config, now);
+            return days.HasValue && days.Value < 0;
         }
 
         private static string? GetTransitionType(MediaItem item, Config? config)
@@ -369,61 +373,5 @@ namespace Storarr.Controllers
                 _ => null
             };
         }
-    }
-
-    // DTOs
-    public class MediaItemListDto
-    {
-        public int Id { get; set; }
-        public string Title { get; set; } = string.Empty;
-        public MediaType Type { get; set; }
-        public FileState CurrentState { get; set; }
-        public string FilePath { get; set; } = string.Empty;
-        public DateTime? LastWatchedAt { get; set; }
-        public int? SeasonNumber { get; set; }
-        public int? EpisodeNumber { get; set; }
-        public long? FileSize { get; set; }
-        public bool IsExcluded { get; set; }
-        public int? DaysUntilTransition { get; set; }
-    }
-
-    public class MediaItemDto
-    {
-        public int Id { get; set; }
-        public string Title { get; set; } = string.Empty;
-        public MediaType Type { get; set; }
-        public string? JellyfinId { get; set; }
-        public int? SonarrId { get; set; }
-        public int? RadarrId { get; set; }
-        public string FilePath { get; set; } = string.Empty;
-        public FileState CurrentState { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime? LastWatchedAt { get; set; }
-        public DateTime? StateChangedAt { get; set; }
-        public int? SeasonNumber { get; set; }
-        public int? EpisodeNumber { get; set; }
-        public long? FileSize { get; set; }
-        public bool IsExcluded { get; set; }
-        public int? DaysUntilTransition { get; set; }
-        public string? TransitionType { get; set; }
-    }
-
-    public class CreateMediaItemDto
-    {
-        public string Title { get; set; } = string.Empty;
-        public MediaType Type { get; set; }
-        public string? JellyfinId { get; set; }
-        public int? SonarrId { get; set; }
-        public int? RadarrId { get; set; }
-        public int? TmdbId { get; set; }
-        public int? TvdbId { get; set; }
-        public string FilePath { get; set; } = string.Empty;
-        public int? SeasonNumber { get; set; }
-        public int? EpisodeNumber { get; set; }
-    }
-
-    public class SetExcludedDto
-    {
-        public bool IsExcluded { get; set; }
     }
 }

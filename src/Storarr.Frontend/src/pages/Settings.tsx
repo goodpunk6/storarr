@@ -168,10 +168,10 @@ export default function Settings() {
       })
 
       await updateConfig(apiData)
-      alert('Configuration saved successfully!')
+      // Config saved successfully
     } catch (error) {
       console.error('Failed to save config:', error)
-      alert('Failed to save configuration')
+      console.error('Failed to save configuration')
     } finally {
       setSaving(false)
     }
@@ -194,10 +194,10 @@ export default function Settings() {
     setProcessing(true)
     try {
       await processTransitions()
-      alert('Transition processing triggered!')
+      // Transition processing triggered
     } catch (error) {
       console.error('Failed to process transitions:', error)
-      alert('Failed to process transitions')
+      console.error('Failed to process transitions')
     } finally {
       setProcessing(false)
     }

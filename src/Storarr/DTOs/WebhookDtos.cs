@@ -1,8 +1,15 @@
 using System;
+using System.Collections.Generic;
 using Storarr.Models;
 
 namespace Storarr.DTOs
 {
+    public class ActivityPageDto
+    {
+        public List<ActivityLogDto> Items { get; set; } = new List<ActivityLogDto>();
+        public int TotalCount { get; set; }
+    }
+
     public class ActivityLogDto
     {
         public int Id { get; set; }

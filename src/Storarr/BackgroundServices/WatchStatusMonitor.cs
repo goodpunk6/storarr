@@ -30,6 +30,7 @@ namespace Storarr.BackgroundServices
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                await BackgroundServiceLock.GlobalLock.WaitAsync(stoppingToken);
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -38,9 +39,17 @@ namespace Storarr.BackgroundServices
 
                     await UpdateWatchStatus(dbContext, jellyfinService);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in WatchStatusMonitor");
+                }
+                finally
+                {
+                    BackgroundServiceLock.GlobalLock.Release();
                 }
 
                 await Task.Delay(_interval, stoppingToken);
@@ -49,7 +58,7 @@ namespace Storarr.BackgroundServices
 
         private async Task UpdateWatchStatus(StorarrDbContext dbContext, IJellyfinService jellyfinService)
         {
-            var config = await dbContext.Configs.FindAsync(1);
+            var config = await dbContext.Configs.FindAsync(Config.SingletonId);
             if (string.IsNullOrEmpty(config?.JellyfinUrl) || string.IsNullOrEmpty(config?.JellyfinApiKey))
             {
                 _logger.LogDebug("Jellyfin not configured, skipping watch status update");

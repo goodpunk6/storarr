@@ -39,6 +39,7 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
   const [step, setStep] = useState(1)
   const [libraryMode, setLibraryMode] = useState<LibraryMode>('NewContentOnly')
   const [loading, setLoading] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [config, setConfig] = useState({
     jellyfinUrl: '',
     jellyfinApiKey: '',
@@ -57,6 +58,7 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
 
   const handleComplete = async () => {
     setLoading(true)
+    setSaveError(null)
     try {
       await completeFirstRun({
         libraryMode,
@@ -65,7 +67,7 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
       onComplete()
     } catch (error) {
       console.error('Failed to complete first run:', error)
-      alert('Failed to save configuration')
+      setSaveError('Failed to save configuration. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -296,7 +298,13 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-arr-primary flex justify-between">
+        <div className="p-6 border-t border-arr-primary">
+          {saveError && (
+            <div className="mb-4 p-3 bg-arr-danger/20 border border-arr-danger/50 rounded-lg text-arr-danger text-sm">
+              {saveError}
+            </div>
+          )}
+        <div className="flex justify-between">
           <button
             onClick={() => setStep(step - 1)}
             disabled={step === 1}
@@ -322,6 +330,7 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
               {loading ? 'Saving...' : 'Complete Setup'}
             </button>
           )}
+        </div>
         </div>
       </div>
     </div>

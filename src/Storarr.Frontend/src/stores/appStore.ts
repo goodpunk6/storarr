@@ -116,6 +116,10 @@ interface AppState {
   // First Run
   showFirstRun: boolean
   setShowFirstRun: (show: boolean) => void
+
+  // SignalR
+  lastMediaUpdate: number
+  setLastMediaUpdate: (ts: number) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -146,4 +150,8 @@ export const useAppStore = create<AppState>((set) => ({
   // First Run
   showFirstRun: false,
   setShowFirstRun: (show) => set({ showFirstRun: show }),
+
+  // SignalR
+  lastMediaUpdate: 0,
+  setLastMediaUpdate: (ts) => set({ lastMediaUpdate: ts }),
 }))

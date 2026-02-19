@@ -19,9 +19,11 @@ namespace Storarr.DTOs
         public int? SeasonNumber { get; set; }
         public int? EpisodeNumber { get; set; }
         public long? FileSize { get; set; }
+        public bool IsExcluded { get; set; }
 
         // Computed fields
         public int? DaysUntilTransition { get; set; }
+        public bool IsOverdue { get; set; }
         public string? TransitionType { get; set; }
     }
 
@@ -50,6 +52,13 @@ namespace Storarr.DTOs
         public int? SeasonNumber { get; set; }
         public int? EpisodeNumber { get; set; }
         public long? FileSize { get; set; }
+        public bool IsExcluded { get; set; }
         public int? DaysUntilTransition { get; set; }
+        public bool IsOverdue { get; set; }
+    }
+
+    public class SetExcludedDto
+    {
+        public bool IsExcluded { get; set; }
     }
 }

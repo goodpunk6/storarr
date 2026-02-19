@@ -40,14 +40,29 @@ namespace Storarr.Controllers
         {
             var items = new List<QueueItemDto>();
 
+            // Load all Downloading items into a dictionary to avoid N+1 queries
+            var downloadingItems = await _dbContext.MediaItems
+                .AsNoTracking()
+                .Where(m => m.CurrentState == FileState.Downloading)
+                .ToListAsync();
+
+            var sonarrDict = downloadingItems
+                .Where(m => m.SonarrId.HasValue)
+                .GroupBy(m => m.SonarrId!.Value)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var radarrDict = downloadingItems
+                .Where(m => m.RadarrId.HasValue)
+                .GroupBy(m => m.RadarrId!.Value)
+                .ToDictionary(g => g.Key, g => g.First());
+
             // Get Sonarr queue
             try
             {
                 var sonarrQueue = await _sonarrService.GetQueue();
                 foreach (var item in sonarrQueue)
                 {
-                    var mediaItem = await _dbContext.MediaItems
-                        .FirstOrDefaultAsync(m => m.SonarrId == item.SeriesId && m.CurrentState == FileState.Downloading);
+                    sonarrDict.TryGetValue(item.SeriesId, out var mediaItem);
 
                     items.Add(new QueueItemDto
                     {
@@ -74,8 +89,7 @@ namespace Storarr.Controllers
                 var radarrQueue = await _radarrService.GetQueue();
                 foreach (var item in radarrQueue)
                 {
-                    var mediaItem = await _dbContext.MediaItems
-                        .FirstOrDefaultAsync(m => m.RadarrId == item.MovieId && m.CurrentState == FileState.Downloading);
+                    radarrDict.TryGetValue(item.MovieId, out var mediaItem);
 
                     items.Add(new QueueItemDto
                     {
@@ -106,7 +120,7 @@ namespace Storarr.Controllers
         [HttpGet("clients")]
         public async Task<ActionResult<DownloadClientQueueResponse>> GetDownloadClientQueues()
         {
-            var config = await _dbContext.Configs.FindAsync(1);
+            var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
             if (config == null)
             {
                 return NotFound();
@@ -184,50 +198,5 @@ namespace Storarr.Controllers
                 return new List<DownloadClientItemDto>();
             }
         }
-    }
-
-    // DTOs
-    public class QueueResponse
-    {
-        public List<QueueItemDto> Items { get; set; } = new List<QueueItemDto>();
-        public int TotalCount { get; set; }
-    }
-
-    public class QueueItemDto
-    {
-        public string DownloadId { get; set; } = string.Empty;
-        public string Title { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public long Size { get; set; }
-        public long SizeLeft { get; set; }
-        public double Progress { get; set; }
-        public string? ErrorMessage { get; set; }
-        public string Source { get; set; } = string.Empty;
-        public int MediaItemId { get; set; }
-    }
-
-    public class DownloadClientQueueResponse
-    {
-        public List<DownloadClientQueueDto> Clients { get; set; } = new List<DownloadClientQueueDto>();
-        public int TotalClients { get; set; }
-        public int TotalItems { get; set; }
-    }
-
-    public class DownloadClientQueueDto
-    {
-        public string ClientType { get; set; } = string.Empty;
-        public string ClientUrl { get; set; } = string.Empty;
-        public List<DownloadClientItemDto> Items { get; set; } = new List<DownloadClientItemDto>();
-    }
-
-    public class DownloadClientItemDto
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public long Size { get; set; }
-        public long SizeRemaining { get; set; }
-        public double Progress { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public string? ErrorMessage { get; set; }
     }
 }

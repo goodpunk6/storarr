@@ -227,16 +227,35 @@ namespace Storarr.Services
 
         private async Task<bool> TestSabnzbd(HttpClient client, string url, string? apiKey)
         {
+            // The API key is in the query string — do not log the full URL to avoid leaking credentials
             var testUrl = $"{url.TrimEnd('/')}/api?mode=server_stats&output=json&apikey={apiKey}";
-            var response = await client.GetAsync(testUrl);
-            return response.IsSuccessStatusCode;
+            try
+            {
+                var response = await client.GetAsync(testUrl);
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SABnzbd connection test failed for {Url}", url);
+                throw;
+            }
         }
 
         private async Task<IEnumerable<DownloadQueueItem>> GetSabnzbdQueue(HttpClient client, string url, string? apiKey)
         {
+            // The API key is in the query string — do not log the full URL to avoid leaking credentials
             var queueUrl = $"{url.TrimEnd('/')}/api?mode=queue&output=json&apikey={apiKey}";
-            var response = await client.GetAsync(queueUrl);
-            response.EnsureSuccessStatusCode();
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.GetAsync(queueUrl);
+                response.EnsureSuccessStatusCode();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SABnzbd queue fetch failed for {Url}", url);
+                throw;
+            }
 
             var json = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<SabnzbdResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });

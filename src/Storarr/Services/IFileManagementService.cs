@@ -5,6 +5,7 @@ namespace Storarr.Services
 {
     public interface IFileManagementService
     {
+        Task ValidatePath(string path);
         Task<bool> IsSymlink(string path);
         Task<string?> GetSymlinkTarget(string path);
         Task DeleteFile(string path);

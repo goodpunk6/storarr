@@ -44,7 +44,14 @@ export default function Queue() {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(() => fetchData(), 10000) // Refresh every 10 seconds
+
+    // Pause auto-refresh when the browser tab is not visible
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchData()
+      }
+    }, 10000)
+
     return () => clearInterval(interval)
   }, [])
 
