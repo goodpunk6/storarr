@@ -7,6 +7,7 @@ namespace Storarr.Services
     {
         Task<IEnumerable<Series>> GetSeries();
         Task<Series?> GetSeries(int sonarrId);
+        Task<Series?> LookupSeriesByTitle(string title);
         Task<IEnumerable<SonarrEpisodeFile>> GetEpisodeFiles(int seriesId);
         Task<SonarrEpisodeFile?> FindEpisodeFileByPath(int seriesId, string filePath);
         Task TriggerSearch(int seriesId, int[]? episodeIds = null);

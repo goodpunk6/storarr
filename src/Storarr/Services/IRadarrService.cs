@@ -7,6 +7,7 @@ namespace Storarr.Services
     {
         Task<IEnumerable<Movie>> GetMovies();
         Task<Movie?> GetMovie(int radarrId);
+        Task<Movie?> LookupMovieByTitle(string title);
         Task<MovieFile?> FindMovieFileByPath(int movieId, string filePath);
         Task TriggerSearch(int movieId);
         Task<MovieFile?> GetMovieFile(int movieFileId);

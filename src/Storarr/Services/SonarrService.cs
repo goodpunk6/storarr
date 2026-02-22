@@ -114,6 +114,44 @@ namespace Storarr.Services
             }
         }
 
+        public async Task<Series?> LookupSeriesByTitle(string title)
+        {
+            try
+            {
+                var allSeries = await GetSeries();
+                var normalizedTitle = title.ToLowerInvariant().Trim();
+
+                // Try exact match first
+                var match = allSeries.FirstOrDefault(s =>
+                    s.Title.ToLowerInvariant().Trim() == normalizedTitle);
+
+                if (match != null)
+                {
+                    _logger.LogDebug("Found series by exact title match: {Title} -> SonarrId {Id}", title, match.Id);
+                    return match;
+                }
+
+                // Try contains match
+                match = allSeries.FirstOrDefault(s =>
+                    s.Title.ToLowerInvariant().Contains(normalizedTitle) ||
+                    normalizedTitle.Contains(s.Title.ToLowerInvariant()));
+
+                if (match != null)
+                {
+                    _logger.LogDebug("Found series by partial title match: {Title} -> SonarrId {Id}", title, match.Id);
+                    return match;
+                }
+
+                _logger.LogDebug("No series found matching title: {Title}", title);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to lookup series by title: {Title}", title);
+                return null;
+            }
+        }
+
         public async Task<IEnumerable<SonarrEpisodeFile>> GetEpisodeFiles(int seriesId)
         {
             try
