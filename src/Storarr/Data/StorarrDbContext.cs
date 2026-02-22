@@ -13,6 +13,7 @@ namespace Storarr.Data
         public DbSet<MediaItem> MediaItems { get; set; } = null!;
         public DbSet<Config> Configs { get; set; } = null!;
         public DbSet<ActivityLog> ActivityLogs { get; set; } = null!;
+        public DbSet<ExcludedItem> ExcludedItems { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -48,6 +49,14 @@ namespace Storarr.Data
                     .WithMany()
                     .HasForeignKey(e => e.MediaItemId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ExcludedItem>(entity =>
+            {
+                entity.HasIndex(e => e.TmdbId);
+                entity.HasIndex(e => e.TvdbId);
+                entity.HasIndex(e => e.SonarrId);
+                entity.HasIndex(e => e.RadarrId);
             });
         }
     }

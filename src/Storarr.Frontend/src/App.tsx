@@ -7,6 +7,7 @@ import MediaDetail from './pages/MediaDetail'
 import Queue from './pages/Queue'
 import Activity from './pages/Activity'
 import Settings from './pages/Settings'
+import Exclusions from './pages/Exclusions'
 import FirstRunWizard from './components/FirstRunWizard'
 import { getConfig } from './api/client'
 import { useAppStore, Config } from './stores/appStore'
@@ -102,6 +103,7 @@ function App() {
             <Route path="/media/:id" element={<MediaDetail />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/activity" element={<Activity />} />
+            <Route path="/exclusions" element={<Exclusions />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>

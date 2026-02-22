@@ -137,6 +137,18 @@ namespace Storarr.BackgroundServices
 
             var files = await fileService.ScanDirectory(config.MediaLibraryPath);
 
+            // Load exclusions to filter out excluded series/movies
+            var exclusions = await dbContext.ExcludedItems.ToListAsync();
+            var excludedSonarrIds = exclusions.Where(e => e.SonarrId.HasValue).Select(e => e.SonarrId.Value).ToHashSet();
+            var excludedRadarrIds = exclusions.Where(e => e.RadarrId.HasValue).Select(e => e.RadarrId.Value).ToHashSet();
+            var excludedTmdbIds = exclusions.Where(e => e.TmdbId.HasValue).Select(e => e.TmdbId.Value).ToHashSet();
+            var excludedTvdbIds = exclusions.Where(e => e.TvdbId.HasValue).Select(e => e.TvdbId.Value).ToHashSet();
+
+            if (exclusions.Any())
+            {
+                _logger.LogInformation("[LibraryScanner] Loaded {Count} exclusions", exclusions.Count);
+            }
+
             // Load all existing items into a dictionary to avoid N+1 queries
             var existingItems = await dbContext.MediaItems.ToListAsync();
             var existingItemsByPath = existingItems.ToDictionary(
@@ -146,10 +158,20 @@ namespace Storarr.BackgroundServices
 
             // Find new files
             var newFiles = files.Where(f => !existingPaths.Contains(f.Path)).ToList();
+            var skippedExcluded = 0;
             foreach (var file in newFiles)
             {
                 var mediaType = DetermineMediaType(file.Path);
                 var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrService(file.Path, config.MediaLibraryPath, mediaType, seriesByPath, moviesByPath);
+
+                // Check if this file belongs to an excluded series/movie
+                if (IsExcluded(sonarrId, radarrId, tmdbId, tvdbId, excludedSonarrIds, excludedRadarrIds, excludedTmdbIds, excludedTvdbIds))
+                {
+                    skippedExcluded++;
+                    _logger.LogDebug("[LibraryScanner] Skipping excluded file: {Path} (SonarrId={SonarrId}, RadarrId={RadarrId})",
+                        file.Path, sonarrId, radarrId);
+                    continue;
+                }
 
                 var mediaItem = new MediaItem
                 {
@@ -235,8 +257,8 @@ namespace Storarr.BackgroundServices
             }
 
             await dbContext.SaveChangesAsync();
-            _logger.LogInformation("[LibraryScanner] Library scan complete. Found {New} new, {Updated} existing, {Deleted} missing",
-                newFiles.Count, existingFiles.Count, deletedPaths.Count);
+            _logger.LogInformation("[LibraryScanner] Library scan complete. Found {New} new, {Updated} existing, {Deleted} missing, {Skipped} excluded",
+                newFiles.Count - skippedExcluded, existingFiles.Count, deletedPaths.Count, skippedExcluded);
         }
 
         /// <summary>
@@ -328,6 +350,27 @@ namespace Storarr.BackgroundServices
                 return MediaType.Series;
 
             return MediaType.Movie;
+        }
+
+        private bool IsExcluded(
+            int? sonarrId,
+            int? radarrId,
+            int? tmdbId,
+            int? tvdbId,
+            HashSet<int> excludedSonarrIds,
+            HashSet<int> excludedRadarrIds,
+            HashSet<int> excludedTmdbIds,
+            HashSet<int> excludedTvdbIds)
+        {
+            if (sonarrId.HasValue && excludedSonarrIds.Contains(sonarrId.Value))
+                return true;
+            if (radarrId.HasValue && excludedRadarrIds.Contains(radarrId.Value))
+                return true;
+            if (tmdbId.HasValue && excludedTmdbIds.Contains(tmdbId.Value))
+                return true;
+            if (tvdbId.HasValue && excludedTvdbIds.Contains(tvdbId.Value))
+                return true;
+            return false;
         }
 
         private void ExtractSeasonEpisode(string path, MediaItem item)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Download, Link2, Trash2 } from 'lucide-react'
-import { getMediaItem, forceDownload, forceSymlink, deleteMedia } from '../api/client'
+import { ArrowLeft, Download, Link2, Trash2, Ban, Play, Pause } from 'lucide-react'
+import { getMediaItem, forceDownload, forceSymlink, deleteMedia, toggleExcluded, excludeByArrId } from '../api/client'
 import { MediaItem } from '../stores/appStore'
 
 export default function MediaDetail() {
@@ -64,6 +64,47 @@ export default function MediaDetail() {
       navigate('/media')
     } catch (error) {
       console.error('Failed to delete:', error)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleToggleExcluded = async () => {
+    if (!item || actionLoading) return
+    setActionLoading(true)
+    try {
+      await toggleExcluded(item.id)
+      const response = await getMediaItem(item.id)
+      setItem(response.data)
+    } catch (error) {
+      console.error('Failed to toggle exclusion:', error)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleExcludeEntireSeries = async () => {
+    if (!item || actionLoading) return
+    const confirmMsg = item.type === 'Movie'
+      ? `Exclude "${item.title}" from the entire Storarr process?\n\nThis will remove all tracked files for this movie and prevent any future tracking.`
+      : `Exclude the entire "${item.title}" series from the Storarr process?\n\nThis will remove all tracked episodes and prevent any future tracking.`
+    if (!confirm(confirmMsg)) return
+
+    setActionLoading(true)
+    try {
+      await excludeByArrId({
+        sonarrId: item.sonarrId,
+        radarrId: item.radarrId,
+        tmdbId: item.tmdbId,
+        tvdbId: item.tvdbId,
+        title: item.title,
+        type: item.type,
+        reason: 'Excluded via media detail page'
+      })
+      navigate('/media')
+    } catch (error: any) {
+      console.error('Failed to exclude:', error)
+      alert(error.response?.data?.error || 'Failed to create exclusion')
     } finally {
       setActionLoading(false)
     }
@@ -174,6 +215,18 @@ export default function MediaDetail() {
             </button>
           )}
           <button
+            onClick={handleToggleExcluded}
+            disabled={actionLoading}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+              item.isExcluded
+                ? 'bg-arr-success/20 text-arr-success hover:bg-arr-success/30'
+                : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+            }`}
+          >
+            {item.isExcluded ? <Play size={20} /> : <Pause size={20} />}
+            {item.isExcluded ? 'Resume Transitions' : 'Pause Transitions'}
+          </button>
+          <button
             onClick={handleDelete}
             disabled={actionLoading}
             className="flex items-center gap-2 px-4 py-2 bg-arr-danger/20 text-arr-danger hover:bg-arr-danger/30 rounded-lg transition-colors disabled:opacity-50"
@@ -182,6 +235,23 @@ export default function MediaDetail() {
             Remove from Tracking
           </button>
         </div>
+      </div>
+
+      {/* Exclude Entire Series/Movie */}
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-2 text-red-400">Danger Zone</h3>
+        <p className="text-sm text-arr-muted mb-4">
+          Completely exclude this {item.type === 'Movie' ? 'movie' : 'series'} from Storarr.
+          All files will be removed from tracking and future library scans will skip this content.
+        </p>
+        <button
+          onClick={handleExcludeEntireSeries}
+          disabled={actionLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+        >
+          <Ban size={20} />
+          Exclude Entire {item.type === 'Movie' ? 'Movie' : 'Series'}
+        </button>
       </div>
     </div>
   )
