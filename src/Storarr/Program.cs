@@ -24,8 +24,39 @@ namespace Storarr
             using (var scope = host.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<StorarrDbContext>();
-                // MigrateAsync applies any pending migrations; safe to call even if DB is up to date.
-                dbContext.Database.Migrate();
+
+                // Check if __EFMigrationsHistory table exists (indicates migrations have been used)
+                var migrationsTableExists = dbContext.Database.ExecuteSqlRaw(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory'") > 0;
+
+                if (migrationsTableExists)
+                {
+                    // Use normal migrations if history table exists
+                    dbContext.Database.Migrate();
+                }
+                else
+                {
+                    // Legacy database without migrations - apply schema changes manually
+                    // First ensure the ExcludedItems table exists
+                    dbContext.Database.ExecuteSqlRaw(@"
+                        CREATE TABLE IF NOT EXISTS ExcludedItems (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            Title TEXT NOT NULL,
+                            Type INTEGER NOT NULL,
+                            TmdbId INTEGER NULL,
+                            TvdbId INTEGER NULL,
+                            SonarrId INTEGER NULL,
+                            RadarrId INTEGER NULL,
+                            Reason TEXT NULL,
+                            CreatedAt TEXT NOT NULL
+                        )");
+
+                    // Create indexes if they don't exist
+                    dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_TmdbId ON ExcludedItems (TmdbId)");
+                    dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_TvdbId ON ExcludedItems (TvdbId)");
+                    dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_SonarrId ON ExcludedItems (SonarrId)");
+                    dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_RadarrId ON ExcludedItems (RadarrId)");
+                }
             }
 
             host.Run();
