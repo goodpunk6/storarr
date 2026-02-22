@@ -14,6 +14,10 @@ export interface MediaItem {
   isExcluded: boolean
   createdAt?: string
   stateChangedAt?: string
+  sonarrId?: number
+  radarrId?: number
+  tmdbId?: number
+  tvdbId?: number
 }
 
 export interface QueueItem {
@@ -46,6 +50,19 @@ export interface ActivityLog {
   toState: string
   details?: string
   timestamp: string
+}
+
+export interface ExcludedItem {
+  id: number
+  title: string
+  type: 'Movie' | 'Series' | 'Anime'
+  tmdbId?: number
+  tvdbId?: number
+  sonarrId?: number
+  radarrId?: number
+  reason?: string
+  createdAt: string
+  removedMediaCount?: number
 }
 
 export type TimeUnit = 'Minutes' | 'Hours' | 'Days' | 'Weeks' | 'Months'

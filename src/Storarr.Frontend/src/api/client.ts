@@ -70,4 +70,41 @@ export const getActivity = (params?: {
 // Transitions
 export const processTransitions = () => api.post('/transitions/process')
 
+// Exclusions
+export const getExclusions = (params?: {
+  type?: string
+  search?: string
+}) => api.get('/exclusions', { params })
+
+export const getExclusion = (id: number) => api.get(`/exclusions/${id}`)
+
+export const createExclusion = (data: {
+  title: string
+  type: string
+  tmdbId?: number
+  tvdbId?: number
+  sonarrId?: number
+  radarrId?: number
+  reason?: string
+}) => api.post('/exclusions', data)
+
+export const deleteExclusion = (id: number) => api.delete(`/exclusions/${id}`)
+
+export const checkExclusion = (params: {
+  sonarrId?: number
+  radarrId?: number
+  tmdbId?: number
+  tvdbId?: number
+}) => api.get('/exclusions/check', { params })
+
+export const excludeByArrId = (data: {
+  sonarrId?: number
+  radarrId?: number
+  tmdbId?: number
+  tvdbId?: number
+  title?: string
+  type?: string
+  reason?: string
+}) => api.post('/exclusions/by-arr-id', data)
+
 export default api

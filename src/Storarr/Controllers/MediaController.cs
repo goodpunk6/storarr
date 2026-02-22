@@ -123,6 +123,8 @@ namespace Storarr.Controllers
                     JellyfinId = item.JellyfinId,
                     SonarrId = item.SonarrId,
                     RadarrId = item.RadarrId,
+                    TmdbId = item.TmdbId,
+                    TvdbId = item.TvdbId,
                     FilePath = item.FilePath,
                     CurrentState = item.CurrentState,
                     CreatedAt = item.CreatedAt,

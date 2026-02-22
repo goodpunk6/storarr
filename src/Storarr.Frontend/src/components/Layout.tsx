@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { HardDrive, Film, Download, Clock, Settings, Menu, X } from 'lucide-react'
+import { HardDrive, Film, Download, Clock, Settings, Menu, X, Ban } from 'lucide-react'
 import { useState } from 'react'
 import { useSignalR } from '../hooks/useSignalR'
 import logoWithText from '../assets/logo-with-text.svg'
@@ -21,6 +21,7 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/media', label: 'Media', icon: Film },
     { path: '/queue', label: 'Queue', icon: Download },
     { path: '/activity', label: 'Activity', icon: Clock },
+    { path: '/exclusions', label: 'Exclusions', icon: Ban },
     { path: '/settings', label: 'Settings', icon: Settings },
   ]
 

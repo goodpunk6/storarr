@@ -11,6 +11,8 @@ namespace Storarr.DTOs
         public string? JellyfinId { get; set; }
         public int? SonarrId { get; set; }
         public int? RadarrId { get; set; }
+        public int? TmdbId { get; set; }
+        public int? TvdbId { get; set; }
         public string FilePath { get; set; } = string.Empty;
         public FileState CurrentState { get; set; }
         public DateTime CreatedAt { get; set; }

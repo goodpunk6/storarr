@@ -65,9 +65,26 @@ namespace Storarr.BackgroundServices
                 return;
             }
 
+            // Load exclusions to skip items that are part of excluded series/movies
+            var exclusions = await dbContext.ExcludedItems.ToListAsync();
+            var excludedSonarrIds = exclusions.Where(e => e.SonarrId.HasValue).Select(e => e.SonarrId.Value).ToHashSet();
+            var excludedRadarrIds = exclusions.Where(e => e.RadarrId.HasValue).Select(e => e.RadarrId.Value).ToHashSet();
+            var excludedTmdbIds = exclusions.Where(e => e.TmdbId.HasValue).Select(e => e.TmdbId.Value).ToHashSet();
+            var excludedTvdbIds = exclusions.Where(e => e.TvdbId.HasValue).Select(e => e.TvdbId.Value).ToHashSet();
+
+            // Also check for items with IsExcluded flag (legacy per-item exclusion)
             var mediaItems = await dbContext.MediaItems
                 .Where(m => !string.IsNullOrEmpty(m.JellyfinId))
                 .ToListAsync();
+
+            // Filter out excluded items in memory
+            mediaItems = mediaItems.Where(m =>
+                !m.IsExcluded &&
+                !(m.SonarrId.HasValue && excludedSonarrIds.Contains(m.SonarrId.Value)) &&
+                !(m.RadarrId.HasValue && excludedRadarrIds.Contains(m.RadarrId.Value)) &&
+                !(m.TmdbId.HasValue && excludedTmdbIds.Contains(m.TmdbId.Value)) &&
+                !(m.TvdbId.HasValue && excludedTvdbIds.Contains(m.TvdbId.Value))
+            ).ToList();
 
             foreach (var item in mediaItems)
             {
