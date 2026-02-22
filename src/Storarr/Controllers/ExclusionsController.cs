@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Storarr.Data;
 using Storarr.DTOs;
 using Storarr.Models;
+using Storarr.Services;
 
 namespace Storarr.Controllers
 {
@@ -16,13 +17,19 @@ namespace Storarr.Controllers
     public class ExclusionsController : ControllerBase
     {
         private readonly StorarrDbContext _dbContext;
+        private readonly ISonarrService _sonarrService;
+        private readonly IRadarrService _radarrService;
         private readonly ILogger<ExclusionsController> _logger;
 
         public ExclusionsController(
             StorarrDbContext dbContext,
+            ISonarrService sonarrService,
+            IRadarrService radarrService,
             ILogger<ExclusionsController> logger)
         {
             _dbContext = dbContext;
+            _sonarrService = sonarrService;
+            _radarrService = radarrService;
             _logger = logger;
         }
 
@@ -114,6 +121,7 @@ namespace Storarr.Controllers
 
         /// <summary>
         /// Add a new exclusion. This will also remove any existing media items matching the exclusion.
+        /// If Sonarr/Radarr APIs are configured, will automatically look up IDs by title.
         /// </summary>
         [HttpPost]
         public async Task<ActionResult<ExcludedItemDto>> CreateExclusion([FromBody] CreateExcludedItemDto dto)
@@ -130,14 +138,79 @@ namespace Storarr.Controllers
                     return BadRequest(new { error = "This item is already excluded", exclusionId = existingExclusion.Id });
                 }
 
+                // Look up IDs from Sonarr/Radarr if not provided
+                int? sonarrId = dto.SonarrId;
+                int? radarrId = dto.RadarrId;
+                int? tmdbId = dto.TmdbId;
+                int? tvdbId = dto.TvdbId;
+
+                if (dto.Type == MediaType.Series || dto.Type == MediaType.Anime)
+                {
+                    // Try to look up in Sonarr
+                    if (!sonarrId.HasValue || !tvdbId.HasValue)
+                    {
+                        try
+                        {
+                            var series = await _sonarrService.LookupSeriesByTitle(dto.Title);
+                            if (series != null)
+                            {
+                                if (!sonarrId.HasValue)
+                                {
+                                    sonarrId = series.Id;
+                                    _logger.LogInformation("[ExclusionsController] Found Sonarr ID {Id} for '{Title}'", sonarrId, dto.Title);
+                                }
+                                if (!tvdbId.HasValue && series.TvdbId > 0)
+                                {
+                                    tvdbId = series.TvdbId;
+                                    _logger.LogInformation("[ExclusionsController] Found TVDB ID {Id} for '{Title}'", tvdbId, dto.Title);
+                                }
+                            }
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Sonarr not configured, skip
+                            _logger.LogDebug("[ExclusionsController] Sonarr not configured, skipping ID lookup");
+                        }
+                    }
+                }
+                else if (dto.Type == MediaType.Movie)
+                {
+                    // Try to look up in Radarr
+                    if (!radarrId.HasValue || !tmdbId.HasValue)
+                    {
+                        try
+                        {
+                            var movie = await _radarrService.LookupMovieByTitle(dto.Title);
+                            if (movie != null)
+                            {
+                                if (!radarrId.HasValue)
+                                {
+                                    radarrId = movie.Id;
+                                    _logger.LogInformation("[ExclusionsController] Found Radarr ID {Id} for '{Title}'", radarrId, dto.Title);
+                                }
+                                if (!tmdbId.HasValue && movie.TmdbId > 0)
+                                {
+                                    tmdbId = movie.TmdbId;
+                                    _logger.LogInformation("[ExclusionsController] Found TMDB ID {Id} for '{Title}'", tmdbId, dto.Title);
+                                }
+                            }
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Radarr not configured, skip
+                            _logger.LogDebug("[ExclusionsController] Radarr not configured, skipping ID lookup");
+                        }
+                    }
+                }
+
                 var exclusion = new ExcludedItem
                 {
                     Title = dto.Title,
                     Type = dto.Type,
-                    TmdbId = dto.TmdbId,
-                    TvdbId = dto.TvdbId,
-                    SonarrId = dto.SonarrId,
-                    RadarrId = dto.RadarrId,
+                    TmdbId = tmdbId,
+                    TvdbId = tvdbId,
+                    SonarrId = sonarrId,
+                    RadarrId = radarrId,
                     Reason = dto.Reason,
                     CreatedAt = DateTime.UtcNow
                 };

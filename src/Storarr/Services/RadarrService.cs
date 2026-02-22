@@ -116,6 +116,44 @@ namespace Storarr.Services
             }
         }
 
+        public async Task<Movie?> LookupMovieByTitle(string title)
+        {
+            try
+            {
+                var allMovies = await GetMovies();
+                var normalizedTitle = title.ToLowerInvariant().Trim();
+
+                // Try exact match first
+                var match = allMovies.FirstOrDefault(m =>
+                    m.Title.ToLowerInvariant().Trim() == normalizedTitle);
+
+                if (match != null)
+                {
+                    _logger.LogDebug("Found movie by exact title match: {Title} -> RadarrId {Id}", title, match.Id);
+                    return match;
+                }
+
+                // Try contains match
+                match = allMovies.FirstOrDefault(m =>
+                    m.Title.ToLowerInvariant().Contains(normalizedTitle) ||
+                    normalizedTitle.Contains(m.Title.ToLowerInvariant()));
+
+                if (match != null)
+                {
+                    _logger.LogDebug("Found movie by partial title match: {Title} -> RadarrId {Id}", title, match.Id);
+                    return match;
+                }
+
+                _logger.LogDebug("No movie found matching title: {Title}", title);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to lookup movie by title: {Title}", title);
+                return null;
+            }
+        }
+
         public async Task<MovieFile?> FindMovieFileByPath(int movieId, string filePath)
         {
             try
