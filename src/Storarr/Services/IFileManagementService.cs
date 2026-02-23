@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Storarr.Models;
 
 namespace Storarr.Services
 {
@@ -12,6 +13,10 @@ namespace Storarr.Services
         Task<long> GetFileSize(string path);
         Task<bool> FileExists(string path);
         Task<IEnumerable<MediaFileInfo>> ScanDirectory(string path, bool recursive = true);
+
+        // Multi-drive support
+        Task<string> GetStoragePathForState(FileState state);
+        Task<List<string>> GetAllStoragePaths();
     }
 
     public class MediaFileInfo

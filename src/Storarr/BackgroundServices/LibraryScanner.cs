@@ -70,13 +70,42 @@ namespace Storarr.BackgroundServices
             IRadarrService radarrService)
         {
             var config = await dbContext.Configs.FindAsync(Config.SingletonId);
-            if (string.IsNullOrEmpty(config?.MediaLibraryPath) || !Directory.Exists(config.MediaLibraryPath))
+            if (config == null)
             {
-                _logger.LogDebug("Media library path not configured or doesn't exist");
+                _logger.LogDebug("Config not found");
                 return;
             }
 
-            _logger.LogInformation("Scanning media library at {Path}", config.MediaLibraryPath);
+            // Get all storage paths to scan (handles both single and multi-drive mode)
+            var storagePaths = await fileService.GetAllStoragePaths();
+            if (storagePaths.Count == 0)
+            {
+                _logger.LogDebug("No storage paths configured");
+                return;
+            }
+
+            // Filter to only existing paths
+            var existingPaths = storagePaths.Where(p => Directory.Exists(p)).ToList();
+            if (existingPaths.Count == 0)
+            {
+                _logger.LogDebug("No configured storage paths exist on disk");
+                return;
+            }
+
+            _logger.LogInformation("Scanning media library at {Count} path(s): {Paths}",
+                existingPaths.Count, string.Join(", ", existingPaths));
+
+            // Build list of all base paths for path matching
+            var allBasePaths = new List<string>();
+            if (!string.IsNullOrEmpty(config.MediaLibraryPath))
+                allBasePaths.Add(config.MediaLibraryPath);
+            if (config.MultiDriveEnabled)
+            {
+                if (!string.IsNullOrEmpty(config.SymlinkStoragePath))
+                    allBasePaths.Add(config.SymlinkStoragePath);
+                if (!string.IsNullOrEmpty(config.MkvStoragePath))
+                    allBasePaths.Add(config.MkvStoragePath);
+            }
 
             // Fetch all series from Sonarr and movies from Radarr for ID matching
             // Key is the relative path within the media library
@@ -90,7 +119,8 @@ namespace Storarr.BackgroundServices
                 {
                     if (!string.IsNullOrEmpty(s.Path))
                     {
-                        var relativePath = ExtractRelativePath(s.Path, config.MediaLibraryPath);
+                        // Try to extract relative path using any of the base paths
+                        var relativePath = ExtractRelativePathMultiBase(s.Path, allBasePaths);
                         seriesByPath[relativePath] = new SeriesInfo
                         {
                             Id = s.Id,
@@ -116,7 +146,8 @@ namespace Storarr.BackgroundServices
                 {
                     if (!string.IsNullOrEmpty(m.Path))
                     {
-                        var relativePath = ExtractRelativePath(m.Path, config.MediaLibraryPath);
+                        // Try to extract relative path using any of the base paths
+                        var relativePath = ExtractRelativePathMultiBase(m.Path, allBasePaths);
                         moviesByPath[relativePath] = new MovieInfo
                         {
                             Id = m.Id,
@@ -135,7 +166,15 @@ namespace Storarr.BackgroundServices
                 _logger.LogWarning(ex, "[LibraryScanner] Failed to fetch movies from Radarr");
             }
 
-            var files = await fileService.ScanDirectory(config.MediaLibraryPath);
+            // Scan all storage paths and merge results
+            var allFiles = new List<Services.MediaFileInfo>();
+            foreach (var storagePath in existingPaths)
+            {
+                _logger.LogDebug("[LibraryScanner] Scanning path: {Path}", storagePath);
+                var files = await fileService.ScanDirectory(storagePath);
+                allFiles.AddRange(files);
+            }
+            _logger.LogInformation("[LibraryScanner] Found {Count} total media files across all paths", allFiles.Count);
 
             // Load exclusions to filter out excluded series/movies
             var exclusions = await dbContext.ExcludedItems.ToListAsync();
@@ -154,15 +193,15 @@ namespace Storarr.BackgroundServices
             var existingItemsByPath = existingItems.ToDictionary(
                 m => m.FilePath,
                 StringComparer.OrdinalIgnoreCase);
-            var existingPaths = existingItemsByPath.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingDbPaths = existingItemsByPath.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // Find new files
-            var newFiles = files.Where(f => !existingPaths.Contains(f.Path)).ToList();
+            var newFiles = allFiles.Where(f => !existingDbPaths.Contains(f.Path)).ToList();
             var skippedExcluded = 0;
             foreach (var file in newFiles)
             {
                 var mediaType = DetermineMediaType(file.Path);
-                var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrService(file.Path, config.MediaLibraryPath, mediaType, seriesByPath, moviesByPath);
+                var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrServiceMultiBase(file.Path, allBasePaths, mediaType, seriesByPath, moviesByPath);
 
                 // Check if this file belongs to an excluded series/movie
                 if (IsExcluded(sonarrId, radarrId, tmdbId, tvdbId, excludedSonarrIds, excludedRadarrIds, excludedTmdbIds, excludedTvdbIds))
@@ -200,7 +239,7 @@ namespace Storarr.BackgroundServices
             }
 
             // Update existing files' states if changed AND link to Arr services if not already linked
-            var existingFiles = files.Where(f => existingPaths.Contains(f.Path)).ToList();
+            var existingFiles = allFiles.Where(f => existingDbPaths.Contains(f.Path)).ToList();
             foreach (var file in existingFiles)
             {
                 if (!existingItemsByPath.TryGetValue(file.Path, out var item))
@@ -221,7 +260,7 @@ namespace Storarr.BackgroundServices
                 // Link to Arr services if not already linked
                 if (!item.SonarrId.HasValue && !item.RadarrId.HasValue)
                 {
-                    var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrService(file.Path, config.MediaLibraryPath, item.Type, seriesByPath, moviesByPath);
+                    var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrServiceMultiBase(file.Path, allBasePaths, item.Type, seriesByPath, moviesByPath);
                     if (sonarrId.HasValue || radarrId.HasValue)
                     {
                         item.SonarrId = sonarrId;
@@ -241,8 +280,8 @@ namespace Storarr.BackgroundServices
             }
 
             // Find deleted files
-            var filePaths = files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var deletedPaths = existingPaths.Where(p => !filePaths.Contains(p)).ToList();
+            var filePaths = allFiles.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var deletedPaths = existingDbPaths.Where(p => !filePaths.Contains(p)).ToList();
             foreach (var path in deletedPaths)
             {
                 if (!existingItemsByPath.TryGetValue(path, out var item))
@@ -259,6 +298,88 @@ namespace Storarr.BackgroundServices
             await dbContext.SaveChangesAsync();
             _logger.LogInformation("[LibraryScanner] Library scan complete. Found {New} new, {Updated} existing, {Deleted} missing, {Skipped} excluded",
                 newFiles.Count - skippedExcluded, existingFiles.Count, deletedPaths.Count, skippedExcluded);
+        }
+
+        /// <summary>
+        /// Extracts the relative path using multiple possible base paths.
+        /// </summary>
+        private string ExtractRelativePathMultiBase(string absolutePath, List<string> basePaths)
+        {
+            var normalizedPath = absolutePath.Replace('\\', '/').TrimEnd('/');
+
+            foreach (var basePath in basePaths)
+            {
+                var normalizedBase = basePath.Replace('\\', '/').TrimEnd('/');
+                if (normalizedPath.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
+                    return normalizedPath.Substring(normalizedBase.Length).TrimStart('/').ToLowerInvariant();
+            }
+
+            // Fallback: return the last two directory components
+            var parts = normalizedPath.ToLowerInvariant().Split('/');
+            return string.Join("/", parts.TakeLast(2));
+        }
+
+        /// <summary>
+        /// Extract the relative path from a file path using multiple possible base paths.
+        /// </summary>
+        private string GetRelativeFilePathMultiBase(string filePath, List<string> basePaths)
+        {
+            var normalizedFile = filePath.Replace('\\', '/').TrimEnd('/');
+
+            foreach (var basePath in basePaths)
+            {
+                var normalizedBase = basePath.Replace('\\', '/').TrimEnd('/');
+                if (normalizedFile.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
+                {
+                    return normalizedFile.Substring(normalizedBase.Length).TrimStart('/').ToLowerInvariant();
+                }
+            }
+
+            return normalizedFile.ToLowerInvariant();
+        }
+
+        private (int? sonarrId, int? radarrId, int? tvdbId, int? tmdbId, string? title) MatchToArrServiceMultiBase(
+            string filePath,
+            List<string> basePaths,
+            MediaType mediaType,
+            Dictionary<string, SeriesInfo> seriesByPath,
+            Dictionary<string, MovieInfo> moviesByPath)
+        {
+            var relativeFilePath = GetRelativeFilePathMultiBase(filePath, basePaths);
+            _logger.LogDebug("[LibraryScanner] Matching file: {FilePath} -> relative: {RelPath}", filePath, relativeFilePath);
+
+            if (mediaType == MediaType.Series || mediaType == MediaType.Anime)
+            {
+                // Find the series whose path is a prefix of this file path
+                var match = seriesByPath
+                    .Where(kvp => relativeFilePath.StartsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(kvp => kvp.Key.Length) // Longest match first
+                    .FirstOrDefault();
+
+                if (!string.IsNullOrEmpty(match.Key))
+                {
+                    _logger.LogDebug("[LibraryScanner] Matched file {FilePath} to series {Title} (ID={Id})",
+                        filePath, match.Value.Title, match.Value.Id);
+                    return (match.Value.Id, null, match.Value.TvdbId, null, match.Value.Title);
+                }
+            }
+            else if (mediaType == MediaType.Movie)
+            {
+                // Find the movie whose path is a prefix of this file path
+                var match = moviesByPath
+                    .Where(kvp => relativeFilePath.StartsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(kvp => kvp.Key.Length) // Longest match first
+                    .FirstOrDefault();
+
+                if (!string.IsNullOrEmpty(match.Key))
+                {
+                    _logger.LogDebug("[LibraryScanner] Matched file {FilePath} to movie {Title} (ID={Id})",
+                        filePath, match.Value.Title, match.Value.Id);
+                    return (null, match.Value.Id, null, match.Value.TmdbId, match.Value.Title);
+                }
+            }
+
+            return (null, null, null, null, null);
         }
 
         /// <summary>

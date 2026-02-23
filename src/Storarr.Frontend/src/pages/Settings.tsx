@@ -45,6 +45,15 @@ export default function Settings() {
           mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
           mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
           mediaLibraryPath: apiConfig.mediaLibraryPath,
+          // Multi-drive
+          multiDriveEnabled: apiConfig.multiDriveEnabled || false,
+          symlinkStoragePath: apiConfig.symlinkStoragePath,
+          mkvStoragePath: apiConfig.mkvStoragePath,
+          sonarrSymlinkRootFolder: apiConfig.sonarrSymlinkRootFolder,
+          sonarrMkvRootFolder: apiConfig.sonarrMkvRootFolder,
+          radarrSymlinkRootFolder: apiConfig.radarrSymlinkRootFolder,
+          radarrMkvRootFolder: apiConfig.radarrMkvRootFolder,
+          // Services
           jellyfinUrl: apiConfig.jellyfinUrl,
           jellyfinApiKey: apiConfig.jellyfinApiKey,
           jellyseerrUrl: apiConfig.jellyseerrUrl,
@@ -133,6 +142,15 @@ export default function Settings() {
         mkvToSymlinkValue: config.mkvToSymlinkValue,
         mkvToSymlinkUnit: config.mkvToSymlinkUnit,
         mediaLibraryPath: config.mediaLibraryPath,
+        // Multi-drive
+        multiDriveEnabled: config.multiDriveEnabled,
+        symlinkStoragePath: config.symlinkStoragePath || '',
+        mkvStoragePath: config.mkvStoragePath || '',
+        sonarrSymlinkRootFolder: config.sonarrSymlinkRootFolder || '',
+        sonarrMkvRootFolder: config.sonarrMkvRootFolder || '',
+        radarrSymlinkRootFolder: config.radarrSymlinkRootFolder || '',
+        radarrMkvRootFolder: config.radarrMkvRootFolder || '',
+        // Services
         jellyfinUrl: config.jellyfinUrl,
         jellyfinApiKey: config.jellyfinApiKey,
         jellyseerrUrl: config.jellyseerrUrl,
@@ -382,7 +400,125 @@ export default function Settings() {
                 onChange={(e) => updateConfigField('mediaLibraryPath', e.target.value)}
                 className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
               />
+              {config.multiDriveEnabled && (
+                <p className="text-sm text-arr-muted mt-1">
+                  This path is used as fallback when multi-drive is enabled but tier paths are not set.
+                </p>
+              )}
             </div>
+          </div>
+
+          {/* Multi-Drive Storage */}
+          <div className="bg-arr-card rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Multi-Drive Storage</h3>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.multiDriveEnabled || false}
+                  onChange={(e) => updateConfigField('multiDriveEnabled', e.target.checked)}
+                  className="w-4 h-4 rounded border-arr-primary"
+                />
+                <span className="text-sm">Enable Multi-Drive</span>
+              </label>
+            </div>
+
+            {config.multiDriveEnabled && (
+              <div className="space-y-6">
+                <div className="flex items-start gap-2 p-3 bg-arr-bg rounded-lg">
+                  <Info size={20} className="text-arr-accent mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-arr-muted">
+                    When multi-drive is enabled, symlinks (.strm files) and MKVs are stored on separate paths.
+                    This allows you to keep frequently accessed content on fast storage (SSD) and older content on bulk storage (HDD).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-arr-muted mb-2">Symlink Storage Path (Fast/SSD)</label>
+                    <input
+                      type="text"
+                      value={config.symlinkStoragePath || ''}
+                      onChange={(e) => updateConfigField('symlinkStoragePath', e.target.value)}
+                      placeholder="/mnt/ssd/media/symlinks"
+                      className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                    />
+                    <p className="text-xs text-arr-muted mt-1">Where .strm files are stored</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-arr-muted mb-2">MKV Storage Path (Bulk/HDD)</label>
+                    <input
+                      type="text"
+                      value={config.mkvStoragePath || ''}
+                      onChange={(e) => updateConfigField('mkvStoragePath', e.target.value)}
+                      placeholder="/mnt/hdd/media/mkv"
+                      className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                    />
+                    <p className="text-xs text-arr-muted mt-1">Where .mkv files are stored</p>
+                  </div>
+                </div>
+
+                <div className="border-t border-arr-primary pt-4 mt-4">
+                  <h4 className="text-md font-semibold mb-3">Sonarr Root Folders</h4>
+                  <p className="text-sm text-arr-muted mb-3">
+                    These are the root folders configured in Sonarr for each storage tier.
+                    Storarr will update the series root folder when transitioning between tiers.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-2">Symlink Root Folder</label>
+                      <input
+                        type="text"
+                        value={config.sonarrSymlinkRootFolder || ''}
+                        onChange={(e) => updateConfigField('sonarrSymlinkRootFolder', e.target.value)}
+                        placeholder="/data/symlinks/tv"
+                        className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-2">MKV Root Folder</label>
+                      <input
+                        type="text"
+                        value={config.sonarrMkvRootFolder || ''}
+                        onChange={(e) => updateConfigField('sonarrMkvRootFolder', e.target.value)}
+                        placeholder="/data/mkv/tv"
+                        className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-arr-primary pt-4">
+                  <h4 className="text-md font-semibold mb-3">Radarr Root Folders</h4>
+                  <p className="text-sm text-arr-muted mb-3">
+                    These are the root folders configured in Radarr for each storage tier.
+                    Storarr will update the movie root folder when transitioning between tiers.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-2">Symlink Root Folder</label>
+                      <input
+                        type="text"
+                        value={config.radarrSymlinkRootFolder || ''}
+                        onChange={(e) => updateConfigField('radarrSymlinkRootFolder', e.target.value)}
+                        placeholder="/data/symlinks/movies"
+                        className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-2">MKV Root Folder</label>
+                      <input
+                        type="text"
+                        value={config.radarrMkvRootFolder || ''}
+                        onChange={(e) => updateConfigField('radarrMkvRootFolder', e.target.value)}
+                        placeholder="/data/mkv/movies"
+                        className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Jellyfin */}

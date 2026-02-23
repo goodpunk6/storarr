@@ -65,10 +65,43 @@ namespace Storarr
                     dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_TvdbId ON ExcludedItems (TvdbId)");
                     dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_SonarrId ON ExcludedItems (SonarrId)");
                     dbContext.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ExcludedItems_RadarrId ON ExcludedItems (RadarrId)");
+
+                    // Add multi-drive columns to Configs table if they don't exist
+                    AddColumnIfNotExists(dbContext, "Configs", "MultiDriveEnabled", "INTEGER NOT NULL DEFAULT 0");
+                    AddColumnIfNotExists(dbContext, "Configs", "SymlinkStoragePath", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "MkvStoragePath", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "SonarrSymlinkRootFolder", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "SonarrMkvRootFolder", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkRootFolder", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvRootFolder", "TEXT NULL");
                 }
             }
 
             host.Run();
+        }
+
+        private static void AddColumnIfNotExists(StorarrDbContext dbContext, string tableName, string columnName, string columnDefinition)
+        {
+            try
+            {
+                // Check if column exists
+                var sql = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name='{columnName}'";
+                using var command = dbContext.Database.GetDbConnection().CreateCommand();
+                command.CommandText = sql;
+                dbContext.Database.OpenConnection();
+                var result = command.ExecuteScalar();
+                var count = result != null ? Convert.ToInt32(result) : 0;
+                dbContext.Database.CloseConnection();
+
+                if (count == 0)
+                {
+                    dbContext.Database.ExecuteSqlRaw($"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnDefinition}");
+                }
+            }
+            catch
+            {
+                // Column might already exist or other error - ignore
+            }
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
