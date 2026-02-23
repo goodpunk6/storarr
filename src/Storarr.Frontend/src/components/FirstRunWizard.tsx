@@ -50,9 +50,12 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
     radarrUrl: '',
     radarrApiKey: '',
     mediaLibraryPath: '/media',
+    multiDriveEnabled: false,
+    symlinkStoragePath: '',
+    mkvStoragePath: '',
   })
 
-  const updateConfig = (field: string, value: string) => {
+  const updateConfig = (field: string, value: string | boolean) => {
     setConfig(prev => ({ ...prev, [field]: value }))
   }
 
@@ -278,6 +281,52 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
                 />
               </div>
 
+              {/* Multi-Drive Configuration (Optional) */}
+              <div className="bg-arr-bg rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-medium">Multi-Drive Storage (Optional)</h3>
+                    <p className="text-arr-muted text-xs mt-1">
+                      Store symlinks on a fast drive (SSD) and MKV files on bulk storage (HDD)
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.multiDriveEnabled}
+                      onChange={(e) => updateConfig('multiDriveEnabled', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-arr-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-arr-accent"></div>
+                  </label>
+                </div>
+
+                {config.multiDriveEnabled && (
+                  <div className="space-y-3 pt-3 border-t border-arr-primary">
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-1">Symlink Storage Path (Fast Drive/SSD)</label>
+                      <input
+                        type="text"
+                        placeholder="/data/symlink-media"
+                        value={config.symlinkStoragePath}
+                        onChange={(e) => updateConfig('symlinkStoragePath', e.target.value)}
+                        className="w-full bg-arr-card border border-arr-primary rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-arr-muted mb-1">MKV Storage Path (Bulk Storage/HDD)</label>
+                      <input
+                        type="text"
+                        placeholder="/data/mkv-media"
+                        value={config.mkvStoragePath}
+                        onChange={(e) => updateConfig('mkvStoragePath', e.target.value)}
+                        className="w-full bg-arr-card border border-arr-primary rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-arr-accent"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="bg-arr-bg rounded-lg p-4">
                 <h3 className="font-medium mb-2">Summary</h3>
                 <div className="space-y-2 text-sm">
@@ -288,6 +337,10 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
                   <div className="flex justify-between">
                     <span className="text-arr-muted">Media Path:</span>
                     <span className="font-medium">{config.mediaLibraryPath}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-arr-muted">Multi-Drive:</span>
+                    <span className="font-medium">{config.multiDriveEnabled ? 'Enabled' : 'Disabled'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-arr-muted">Jellyfin:</span>
