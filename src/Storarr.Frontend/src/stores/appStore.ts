@@ -86,6 +86,15 @@ export interface Config {
   mkvToSymlinkValue: number
   mkvToSymlinkUnit: TimeUnit
   mediaLibraryPath: string
+  // Multi-drive storage
+  multiDriveEnabled: boolean
+  symlinkStoragePath?: string
+  mkvStoragePath?: string
+  sonarrSymlinkRootFolder?: string
+  sonarrMkvRootFolder?: string
+  radarrSymlinkRootFolder?: string
+  radarrMkvRootFolder?: string
+  // Services
   jellyfinUrl?: string
   jellyfinApiKey?: string
   jellyseerrUrl?: string

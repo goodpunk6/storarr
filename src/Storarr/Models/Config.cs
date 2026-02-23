@@ -22,9 +22,28 @@ namespace Storarr.Models
         public int MkvToSymlinkValue { get; set; } = 30;
         public TimeUnit MkvToSymlinkUnit { get; set; } = TimeUnit.Days;
 
-        // Paths
+        // Paths - Legacy single path (fallback if tier paths not set)
         [MaxLength(500)]
         public string MediaLibraryPath { get; set; } = "/media";
+
+        // Multi-drive storage paths (optional - if enabled, these override MediaLibraryPath)
+        public bool MultiDriveEnabled { get; set; } = false;
+        [MaxLength(500)]
+        public string? SymlinkStoragePath { get; set; }  // Fast storage for .strm files
+        [MaxLength(500)]
+        public string? MkvStoragePath { get; set; }      // Bulk storage for .mkv files
+
+        // Sonarr root folders for multi-drive (optional)
+        [MaxLength(500)]
+        public string? SonarrSymlinkRootFolder { get; set; }  // Root folder in Sonarr for symlink tier
+        [MaxLength(500)]
+        public string? SonarrMkvRootFolder { get; set; }      // Root folder in Sonarr for MKV tier
+
+        // Radarr root folders for multi-drive (optional)
+        [MaxLength(500)]
+        public string? RadarrSymlinkRootFolder { get; set; }  // Root folder in Radarr for symlink tier
+        [MaxLength(500)]
+        public string? RadarrMkvRootFolder { get; set; }      // Root folder in Radarr for MKV tier
 
         // Jellyfin
         [MaxLength(200)]

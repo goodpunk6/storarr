@@ -112,6 +112,26 @@ namespace Storarr.Controllers
                 if (dto.MediaLibraryPath != null)
                     config.MediaLibraryPath = dto.MediaLibraryPath.Trim();
 
+                // Multi-drive storage paths
+                if (dto.MultiDriveEnabled.HasValue)
+                    config.MultiDriveEnabled = dto.MultiDriveEnabled.Value;
+                if (dto.SymlinkStoragePath != null)
+                    config.SymlinkStoragePath = string.IsNullOrWhiteSpace(dto.SymlinkStoragePath) ? null : dto.SymlinkStoragePath.Trim();
+                if (dto.MkvStoragePath != null)
+                    config.MkvStoragePath = string.IsNullOrWhiteSpace(dto.MkvStoragePath) ? null : dto.MkvStoragePath.Trim();
+
+                // Sonarr root folders for multi-drive
+                if (dto.SonarrSymlinkRootFolder != null)
+                    config.SonarrSymlinkRootFolder = string.IsNullOrWhiteSpace(dto.SonarrSymlinkRootFolder) ? null : dto.SonarrSymlinkRootFolder.Trim();
+                if (dto.SonarrMkvRootFolder != null)
+                    config.SonarrMkvRootFolder = string.IsNullOrWhiteSpace(dto.SonarrMkvRootFolder) ? null : dto.SonarrMkvRootFolder.Trim();
+
+                // Radarr root folders for multi-drive
+                if (dto.RadarrSymlinkRootFolder != null)
+                    config.RadarrSymlinkRootFolder = string.IsNullOrWhiteSpace(dto.RadarrSymlinkRootFolder) ? null : dto.RadarrSymlinkRootFolder.Trim();
+                if (dto.RadarrMkvRootFolder != null)
+                    config.RadarrMkvRootFolder = string.IsNullOrWhiteSpace(dto.RadarrMkvRootFolder) ? null : dto.RadarrMkvRootFolder.Trim();
+
                 // Media services - trim all URLs and API keys
                 if (dto.JellyfinUrl != null)
                     config.JellyfinUrl = dto.JellyfinUrl.Trim();
@@ -352,6 +372,15 @@ namespace Storarr.Controllers
                 MkvToSymlinkValue = config.MkvToSymlinkValue,
                 MkvToSymlinkUnit = config.MkvToSymlinkUnit.ToString(),
                 MediaLibraryPath = config.MediaLibraryPath,
+                // Multi-drive fields
+                MultiDriveEnabled = config.MultiDriveEnabled,
+                SymlinkStoragePath = config.SymlinkStoragePath,
+                MkvStoragePath = config.MkvStoragePath,
+                SonarrSymlinkRootFolder = config.SonarrSymlinkRootFolder,
+                SonarrMkvRootFolder = config.SonarrMkvRootFolder,
+                RadarrSymlinkRootFolder = config.RadarrSymlinkRootFolder,
+                RadarrMkvRootFolder = config.RadarrMkvRootFolder,
+                // Service URLs
                 JellyfinUrl = config.JellyfinUrl,
                 JellyfinApiKey = MaskApiKey(config.JellyfinApiKey),
                 JellyseerrUrl = config.JellyseerrUrl,
@@ -360,6 +389,7 @@ namespace Storarr.Controllers
                 SonarrApiKey = MaskApiKey(config.SonarrApiKey),
                 RadarrUrl = config.RadarrUrl,
                 RadarrApiKey = MaskApiKey(config.RadarrApiKey),
+                // Download clients
                 DownloadClient1Enabled = config.DownloadClient1Enabled,
                 DownloadClient1Type = config.DownloadClient1Type.ToString(),
                 DownloadClient1Url = config.DownloadClient1Url,

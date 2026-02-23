@@ -21,6 +21,15 @@ function mapApiConfigToStore(apiConfig: any): Config {
     mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
     mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
     mediaLibraryPath: apiConfig.mediaLibraryPath,
+    // Multi-drive
+    multiDriveEnabled: apiConfig.multiDriveEnabled || false,
+    symlinkStoragePath: apiConfig.symlinkStoragePath,
+    mkvStoragePath: apiConfig.mkvStoragePath,
+    sonarrSymlinkRootFolder: apiConfig.sonarrSymlinkRootFolder,
+    sonarrMkvRootFolder: apiConfig.sonarrMkvRootFolder,
+    radarrSymlinkRootFolder: apiConfig.radarrSymlinkRootFolder,
+    radarrMkvRootFolder: apiConfig.radarrMkvRootFolder,
+    // Services
     jellyfinUrl: apiConfig.jellyfinUrl,
     jellyfinApiKey: apiConfig.jellyfinApiKey,
     jellyseerrUrl: apiConfig.jellyseerrUrl,

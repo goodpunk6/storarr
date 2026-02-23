@@ -16,6 +16,19 @@ namespace Storarr.DTOs
 
         public string MediaLibraryPath { get; set; } = string.Empty;
 
+        // Multi-drive storage paths
+        public bool MultiDriveEnabled { get; set; }
+        public string? SymlinkStoragePath { get; set; }
+        public string? MkvStoragePath { get; set; }
+
+        // Sonarr root folders for multi-drive
+        public string? SonarrSymlinkRootFolder { get; set; }
+        public string? SonarrMkvRootFolder { get; set; }
+
+        // Radarr root folders for multi-drive
+        public string? RadarrSymlinkRootFolder { get; set; }
+        public string? RadarrMkvRootFolder { get; set; }
+
         // Jellyfin
         public string? JellyfinUrl { get; set; }
         public string? JellyfinApiKey { get; set; }
@@ -68,6 +81,19 @@ namespace Storarr.DTOs
         public string? MkvToSymlinkUnit { get; set; }
 
         public string? MediaLibraryPath { get; set; }
+
+        // Multi-drive storage paths
+        public bool? MultiDriveEnabled { get; set; }
+        public string? SymlinkStoragePath { get; set; }
+        public string? MkvStoragePath { get; set; }
+
+        // Sonarr root folders for multi-drive
+        public string? SonarrSymlinkRootFolder { get; set; }
+        public string? SonarrMkvRootFolder { get; set; }
+
+        // Radarr root folders for multi-drive
+        public string? RadarrSymlinkRootFolder { get; set; }
+        public string? RadarrMkvRootFolder { get; set; }
 
         // Jellyfin
         public string? JellyfinUrl { get; set; }
