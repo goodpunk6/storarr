@@ -29,10 +29,19 @@ namespace Storarr
                 var migrationsTableExists = dbContext.Database.ExecuteSqlRaw(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory'") > 0;
 
+                // Check if Configs table exists (indicates database has been initialized)
+                var configsTableExists = dbContext.Database.ExecuteSqlRaw(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Configs'") > 0;
+
                 if (migrationsTableExists)
                 {
                     // Use normal migrations if history table exists
                     dbContext.Database.Migrate();
+                }
+                else if (!configsTableExists)
+                {
+                    // Fresh database - create all tables using EnsureCreated
+                    dbContext.Database.EnsureCreated();
                 }
                 else
                 {
