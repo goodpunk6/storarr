@@ -250,6 +250,13 @@ namespace Storarr.Controllers
                 if (!string.IsNullOrEmpty(dto.MediaLibraryPath))
                     config.MediaLibraryPath = dto.MediaLibraryPath.Trim();
 
+                // Multi-drive support
+                config.MultiDriveEnabled = dto.MultiDriveEnabled;
+                if (!string.IsNullOrEmpty(dto.SymlinkStoragePath))
+                    config.SymlinkStoragePath = dto.SymlinkStoragePath.Trim();
+                if (!string.IsNullOrEmpty(dto.MkvStoragePath))
+                    config.MkvStoragePath = dto.MkvStoragePath.Trim();
+
                 config.FirstRunComplete = true;
                 await _dbContext.SaveChangesAsync();
 

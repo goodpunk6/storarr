@@ -159,5 +159,9 @@ namespace Storarr.DTOs
         public string? RadarrUrl { get; set; }
         public string? RadarrApiKey { get; set; }
         public string? MediaLibraryPath { get; set; }
+        // Multi-drive support (optional)
+        public bool MultiDriveEnabled { get; set; }
+        public string? SymlinkStoragePath { get; set; }
+        public string? MkvStoragePath { get; set; }
     }
 }
