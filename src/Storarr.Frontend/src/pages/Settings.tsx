@@ -143,29 +143,53 @@ export default function Settings() {
         radarrApiKey: config.radarrApiKey,
       }
 
-      // Map download clients back to fixed slots
-      downloadClients.forEach((client, index) => {
-        if (index === 0) {
-          apiData.downloadClient1Enabled = client.enabled
-          apiData.downloadClient1Type = client.type
-          apiData.downloadClient1Url = client.url
-          apiData.downloadClient1Username = client.username
-          apiData.downloadClient1Password = client.password
-          apiData.downloadClient1ApiKey = client.apiKey
-        } else if (index === 1) {
-          apiData.downloadClient2Enabled = client.enabled
-          apiData.downloadClient2Type = client.type
-          apiData.downloadClient2Url = client.url
-          apiData.downloadClient2Username = client.username
-          apiData.downloadClient2Password = client.password
-          apiData.downloadClient2ApiKey = client.apiKey
-        } else if (index === 2) {
-          apiData.downloadClient3Enabled = client.enabled
-          apiData.downloadClient3Type = client.type
-          apiData.downloadClient3Url = client.url
-          apiData.downloadClient3ApiKey = client.apiKey
-        }
-      })
+      // Map download clients back to fixed slots, clear unused slots
+      // Client 1
+      if (downloadClients.length > 0) {
+        const client = downloadClients[0]
+        apiData.downloadClient1Enabled = client.enabled
+        apiData.downloadClient1Type = client.type
+        apiData.downloadClient1Url = client.url || ''
+        apiData.downloadClient1Username = client.username || ''
+        apiData.downloadClient1Password = client.password || ''
+        apiData.downloadClient1ApiKey = client.apiKey || ''
+      } else {
+        apiData.downloadClient1Enabled = false
+        apiData.downloadClient1Url = ''
+        apiData.downloadClient1Username = ''
+        apiData.downloadClient1Password = ''
+        apiData.downloadClient1ApiKey = ''
+      }
+
+      // Client 2
+      if (downloadClients.length > 1) {
+        const client = downloadClients[1]
+        apiData.downloadClient2Enabled = client.enabled
+        apiData.downloadClient2Type = client.type
+        apiData.downloadClient2Url = client.url || ''
+        apiData.downloadClient2Username = client.username || ''
+        apiData.downloadClient2Password = client.password || ''
+        apiData.downloadClient2ApiKey = client.apiKey || ''
+      } else {
+        apiData.downloadClient2Enabled = false
+        apiData.downloadClient2Url = ''
+        apiData.downloadClient2Username = ''
+        apiData.downloadClient2Password = ''
+        apiData.downloadClient2ApiKey = ''
+      }
+
+      // Client 3
+      if (downloadClients.length > 2) {
+        const client = downloadClients[2]
+        apiData.downloadClient3Enabled = client.enabled
+        apiData.downloadClient3Type = client.type
+        apiData.downloadClient3Url = client.url || ''
+        apiData.downloadClient3ApiKey = client.apiKey || ''
+      } else {
+        apiData.downloadClient3Enabled = false
+        apiData.downloadClient3Url = ''
+        apiData.downloadClient3ApiKey = ''
+      }
 
       await updateConfig(apiData)
       // Config saved successfully
