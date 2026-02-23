@@ -133,43 +133,43 @@ namespace Storarr.Controllers
                 if (!string.IsNullOrEmpty(dto.RadarrApiKey) && !IsMasked(dto.RadarrApiKey))
                     config.RadarrApiKey = dto.RadarrApiKey.Trim();
 
-                // Download Client 1
+                // Download Client 1 - allow clearing by sending empty string
                 if (dto.DownloadClient1Enabled.HasValue)
                     config.DownloadClient1Enabled = dto.DownloadClient1Enabled.Value;
                 if (!string.IsNullOrEmpty(dto.DownloadClient1Type) && Enum.TryParse<DownloadClientType>(dto.DownloadClient1Type, out var dc1Type))
                     config.DownloadClient1Type = dc1Type;
                 if (dto.DownloadClient1Url != null)
-                    config.DownloadClient1Url = dto.DownloadClient1Url.Trim();
+                    config.DownloadClient1Url = string.IsNullOrWhiteSpace(dto.DownloadClient1Url) ? null : dto.DownloadClient1Url.Trim();
                 if (dto.DownloadClient1Username != null)
-                    config.DownloadClient1Username = dto.DownloadClient1Username.Trim();
-                if (!string.IsNullOrEmpty(dto.DownloadClient1Password) && !IsMasked(dto.DownloadClient1Password))
-                    config.DownloadClient1Password = dto.DownloadClient1Password.Trim();
-                if (!string.IsNullOrEmpty(dto.DownloadClient1ApiKey) && !IsMasked(dto.DownloadClient1ApiKey))
-                    config.DownloadClient1ApiKey = dto.DownloadClient1ApiKey.Trim();
+                    config.DownloadClient1Username = string.IsNullOrWhiteSpace(dto.DownloadClient1Username) ? null : dto.DownloadClient1Username.Trim();
+                if (dto.DownloadClient1Password != null && !IsMasked(dto.DownloadClient1Password))
+                    config.DownloadClient1Password = string.IsNullOrWhiteSpace(dto.DownloadClient1Password) ? null : dto.DownloadClient1Password.Trim();
+                if (dto.DownloadClient1ApiKey != null && !IsMasked(dto.DownloadClient1ApiKey))
+                    config.DownloadClient1ApiKey = string.IsNullOrWhiteSpace(dto.DownloadClient1ApiKey) ? null : dto.DownloadClient1ApiKey.Trim();
 
-                // Download Client 2
+                // Download Client 2 - allow clearing by sending empty string
                 if (dto.DownloadClient2Enabled.HasValue)
                     config.DownloadClient2Enabled = dto.DownloadClient2Enabled.Value;
                 if (!string.IsNullOrEmpty(dto.DownloadClient2Type) && Enum.TryParse<DownloadClientType>(dto.DownloadClient2Type, out var dc2Type))
                     config.DownloadClient2Type = dc2Type;
                 if (dto.DownloadClient2Url != null)
-                    config.DownloadClient2Url = dto.DownloadClient2Url.Trim();
+                    config.DownloadClient2Url = string.IsNullOrWhiteSpace(dto.DownloadClient2Url) ? null : dto.DownloadClient2Url.Trim();
                 if (dto.DownloadClient2Username != null)
-                    config.DownloadClient2Username = dto.DownloadClient2Username.Trim();
-                if (!string.IsNullOrEmpty(dto.DownloadClient2Password) && !IsMasked(dto.DownloadClient2Password))
-                    config.DownloadClient2Password = dto.DownloadClient2Password.Trim();
-                if (!string.IsNullOrEmpty(dto.DownloadClient2ApiKey) && !IsMasked(dto.DownloadClient2ApiKey))
-                    config.DownloadClient2ApiKey = dto.DownloadClient2ApiKey.Trim();
+                    config.DownloadClient2Username = string.IsNullOrWhiteSpace(dto.DownloadClient2Username) ? null : dto.DownloadClient2Username.Trim();
+                if (dto.DownloadClient2Password != null && !IsMasked(dto.DownloadClient2Password))
+                    config.DownloadClient2Password = string.IsNullOrWhiteSpace(dto.DownloadClient2Password) ? null : dto.DownloadClient2Password.Trim();
+                if (dto.DownloadClient2ApiKey != null && !IsMasked(dto.DownloadClient2ApiKey))
+                    config.DownloadClient2ApiKey = string.IsNullOrWhiteSpace(dto.DownloadClient2ApiKey) ? null : dto.DownloadClient2ApiKey.Trim();
 
-                // Download Client 3
+                // Download Client 3 - allow clearing by sending empty string
                 if (dto.DownloadClient3Enabled.HasValue)
                     config.DownloadClient3Enabled = dto.DownloadClient3Enabled.Value;
                 if (!string.IsNullOrEmpty(dto.DownloadClient3Type) && Enum.TryParse<DownloadClientType>(dto.DownloadClient3Type, out var dc3Type))
                     config.DownloadClient3Type = dc3Type;
                 if (dto.DownloadClient3Url != null)
-                    config.DownloadClient3Url = dto.DownloadClient3Url.Trim();
-                if (!string.IsNullOrEmpty(dto.DownloadClient3ApiKey) && !IsMasked(dto.DownloadClient3ApiKey))
-                    config.DownloadClient3ApiKey = dto.DownloadClient3ApiKey.Trim();
+                    config.DownloadClient3Url = string.IsNullOrWhiteSpace(dto.DownloadClient3Url) ? null : dto.DownloadClient3Url.Trim();
+                if (dto.DownloadClient3ApiKey != null && !IsMasked(dto.DownloadClient3ApiKey))
+                    config.DownloadClient3ApiKey = string.IsNullOrWhiteSpace(dto.DownloadClient3ApiKey) ? null : dto.DownloadClient3ApiKey.Trim();
 
                 await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("[ConfigController] Config saved successfully");
