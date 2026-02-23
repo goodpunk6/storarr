@@ -84,22 +84,24 @@ export default function FirstRunWizard({ onComplete }: FirstRunWizardProps) {
 
         {/* Progress */}
         <div className="px-6 py-4 border-b border-arr-primary">
-          <div className="flex items-center">
+          <div className="grid grid-cols-5 items-center">
             {[1, 2, 3].map((s) => (
-              <div key={s} className="flex items-center flex-1">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium shrink-0 ${
+              <div key={s} className="contents">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium justify-self-center ${
                   s <= step ? 'bg-arr-accent text-white' : 'bg-arr-bg text-arr-muted'
                 }`}>
                   {s}
                 </div>
-                {s < 3 && <div className={`flex-1 h-1 mx-1 ${s < step ? 'bg-arr-accent' : 'bg-arr-bg'}`} />}
+                {s < 3 && <div className={`h-1 col-span-1 ${s < step ? 'bg-arr-accent' : 'bg-arr-bg'}`} />}
               </div>
             ))}
           </div>
-          <div className="flex mt-2 text-xs text-arr-muted">
-            <span className="w-8 text-center shrink-0">Library Mode</span>
-            <span className="flex-1 text-center">Connections</span>
-            <span className="w-8 text-center shrink-0">Paths</span>
+          <div className="grid grid-cols-5 mt-2 text-xs text-arr-muted">
+            <span className="text-center col-span-1">Library Mode</span>
+            <div className="col-span-1" />
+            <span className="text-center col-span-1">Connections</span>
+            <div className="col-span-1" />
+            <span className="text-center col-span-1">Paths</span>
           </div>
         </div>
 
