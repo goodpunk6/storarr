@@ -169,6 +169,9 @@ namespace Storarr.Controllers
                     }
                 }
 
+                // Default sort: alphabetically by title
+                results = results.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase).ToList();
+
                 _logger.LogDebug("[CatalogController] Returning {Count} catalog groups", results.Count);
                 return Ok(results);
             }
@@ -198,16 +201,32 @@ namespace Storarr.Controllers
 
                 var episodes = episodeFiles.Select(ep =>
                 {
+                    // Parse season/episode from Sonarr filename first (Sonarr API often returns 0 for episode number)
+                    var seasonNum = ep.SeasonNumber;
+                    var episodeNum = ep.EpisodeNumber;
+                    if ((episodeNum == 0 || episodeNum == null) && !string.IsNullOrEmpty(ep.Path))
+                    {
+                        var fileName = System.IO.Path.GetFileNameWithoutExtension(ep.Path);
+                        var match = System.Text.RegularExpressions.Regex.Match(
+                            fileName, @"S(\d{1,2})\s*E(\d{1,2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success)
+                        {
+                            seasonNum = int.Parse(match.Groups[1].Value);
+                            episodeNum = int.Parse(match.Groups[2].Value);
+                        }
+                    }
+
+                    // Match tracked item by season/episode number
                     var tracked = trackedItems.FirstOrDefault(t =>
-                        t.SeasonNumber == ep.SeasonNumber &&
-                        t.EpisodeNumber == ep.EpisodeNumber);
+                        t.SeasonNumber == seasonNum &&
+                        t.EpisodeNumber == episodeNum);
 
                     return new CatalogEpisodeDto
                     {
                         MediaItemId = tracked?.Id,
-                        SeasonNumber = ep.SeasonNumber,
-                        EpisodeNumber = ep.EpisodeNumber,
-                        Title = $"{seriesTitle} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}",
+                        SeasonNumber = seasonNum,
+                        EpisodeNumber = episodeNum,
+                        Title = $"{seriesTitle} S{seasonNum:D2}E{episodeNum:D2}",
                         CurrentState = tracked?.CurrentState.ToString() ?? "Untracked",
                         FileSize = tracked?.FileSize ?? ep.Size,
                         IsExcluded = tracked?.IsExcluded ?? false,

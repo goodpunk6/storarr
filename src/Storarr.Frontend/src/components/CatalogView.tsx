@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, ArrowUpDown } from 'lucide-react'
 import { getCatalog, getSeriesEpisodes, ensureTracked, forceDownload, forceSymlink } from '../api/client'
 import type { CatalogEpisodeDto, CatalogGroupDto } from '../stores/appStore'
 import BulkActionBar from './BulkActionBar'
@@ -49,6 +49,7 @@ export default function CatalogView({ filters }: CatalogViewProps) {
   const [selectedEpisodes, setSelectedEpisodes] = useState<Map<string, { ep: CatalogEpisodeDto; group: CatalogGroupDto }>>(new Map())
   const [confirmDialog, setConfirmDialog] = useState<{ action: 'toMkv' | 'toSymlink'; items: CatalogEpisodeDto[] } | null>(null)
   const [batchProgress, setBatchProgress] = useState<{ completed: number; failed: number; total: number; running: boolean } | null>(null)
+  const [sortBy, setSortBy] = useState<'title-asc' | 'title-desc' | 'size-desc' | 'size-asc'>('title-asc')
   const [batchResult, setBatchResult] = useState<{ completed: number; failed: number; total: number } | null>(null)
 
   const batchResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -247,26 +248,40 @@ export default function CatalogView({ filters }: CatalogViewProps) {
 
   // Filter catalog based on stateFilter
   const filteredCatalog = useMemo(() => {
-    if (!filters.stateFilter) return catalog
-    const stateLower = filters.stateFilter.toLowerCase()
+    let result = filters.stateFilter
+      ? (() => {
+          const stateLower = filters.stateFilter.toLowerCase()
+          return catalog
+            .map((group) => {
+              const filteredEpisodes = group.episodes.filter(
+                (ep) => ep.currentState.toLowerCase() === stateLower || (stateLower === 'untracked' && !ep.mediaItemId)
+              )
+              if (group.type === 'Movie') {
+                if (group.episodes.length > 0 && filteredEpisodes.length === 0) return null
+              } else {
+                if (expandedGroups.has(group.sonarrId ?? 0) && filteredEpisodes.length === 0 && group.episodes.length > 0) {
+                  return null
+                }
+              }
+              return { ...group, episodes: filteredEpisodes.length > 0 ? filteredEpisodes : group.episodes }
+            })
+            .filter((g): g is CatalogGroupDto => g !== null)
+        })()
+      : catalog
 
-    return catalog
-      .map((group) => {
-        const filteredEpisodes = group.episodes.filter(
-          (ep) => ep.currentState.toLowerCase() === stateLower || (stateLower === 'untracked' && !ep.mediaItemId)
-        )
-        if (group.type === 'Movie') {
-          if (group.episodes.length > 0 && filteredEpisodes.length === 0) return null
-        } else {
-          // For series, if expanded, only show matching episodes; otherwise, keep if any episode matches
-          if (expandedGroups.has(group.sonarrId ?? 0) && filteredEpisodes.length === 0 && group.episodes.length > 0) {
-            return null
-          }
-        }
-        return { ...group, episodes: filteredEpisodes.length > 0 ? filteredEpisodes : group.episodes }
-      })
-      .filter((g): g is CatalogGroupDto => g !== null)
-  }, [catalog, filters.stateFilter, expandedGroups])
+    // Sort
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'title-asc': return a.title.localeCompare(b.title)
+        case 'title-desc': return b.title.localeCompare(a.title)
+        case 'size-desc': return b.totalSizeBytes - a.totalSizeBytes
+        case 'size-asc': return a.totalSizeBytes - b.totalSizeBytes
+        default: return 0
+      }
+    })
+
+    return result
+  }, [catalog, filters.stateFilter, expandedGroups, sortBy])
 
   // Selection state per group
   const getGroupSelectionState = useCallback(
@@ -329,6 +344,22 @@ export default function CatalogView({ filters }: CatalogViewProps) {
           )}
         </div>
       )}
+
+      {/* Sort control */}
+      <div className="flex items-center gap-2">
+        <ArrowUpDown className="w-4 h-4 text-arr-muted" />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="bg-arr-card border border-arr-primary rounded px-2 py-1 text-sm text-arr-text focus:outline-none focus:border-arr-accent"
+        >
+          <option value="title-asc">Title A-Z</option>
+          <option value="title-desc">Title Z-A</option>
+          <option value="size-desc">Size (largest first)</option>
+          <option value="size-asc">Size (smallest first)</option>
+        </select>
+        <span className="text-sm text-arr-muted">{filteredCatalog.length} items</span>
+      </div>
 
       {/* Catalog table */}
       {filteredCatalog.length === 0 ? (
