@@ -25,6 +25,8 @@ namespace Storarr.Services
         public int TvdbId { get; set; }
         public string? Path { get; set; }
         public int QualityProfileId { get; set; }
+        public int? TmdbId { get; set; }
+        public List<SonarrImage>? Images { get; set; }
     }
 
     public class SonarrEpisodeFile
@@ -48,5 +50,12 @@ namespace Storarr.Services
         public long Size { get; set; }
         public long SizeLeft { get; set; }
         public string? ErrorMessage { get; set; }
+    }
+
+    public class SonarrImage
+    {
+        public string? CoverType { get; set; }
+        public string? Url { get; set; }
+        public string? RemoteUrl { get; set; }
     }
 }

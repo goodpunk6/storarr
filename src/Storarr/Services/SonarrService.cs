@@ -75,7 +75,9 @@ namespace Storarr.Services
                     Title = s.Title,
                     TvdbId = s.TvdbId,
                     Path = s.Path,
-                    QualityProfileId = s.QualityProfileId
+                    QualityProfileId = s.QualityProfileId,
+                    TmdbId = s.TmdbId,
+                    Images = s.Images
                 }) ?? Enumerable.Empty<Series>();
             }
             catch (Exception ex)
@@ -104,7 +106,9 @@ namespace Storarr.Services
                     Title = s.Title,
                     TvdbId = s.TvdbId,
                     Path = s.Path,
-                    QualityProfileId = s.QualityProfileId
+                    QualityProfileId = s.QualityProfileId,
+                    TmdbId = s.TmdbId,
+                    Images = s.Images
                 };
             }
             catch (Exception ex)
@@ -364,6 +368,8 @@ namespace Storarr.Services
         public int TvdbId { get; set; }
         public string? Path { get; set; }
         public int QualityProfileId { get; set; }
+        public int? TmdbId { get; set; }
+        public List<SonarrImage>? Images { get; set; }
     }
 
     internal class SonarrEpisodeFileResponse
