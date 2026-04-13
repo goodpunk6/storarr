@@ -125,6 +125,30 @@ namespace Storarr.Controllers
                             FilePath = m.FilePath
                         }).ToList();
 
+                        // Untracked movie -- create a synthetic episode row so it's visible and selectable
+                        if (episodes.Count == 0)
+                        {
+                            episodes.Add(new CatalogEpisodeDto
+                            {
+                                MediaItemId = null,
+                                SeasonNumber = null,
+                                EpisodeNumber = null,
+                                Title = movie.Title,
+                                CurrentState = "Untracked",
+                                FileSize = null,
+                                IsExcluded = false,
+                                FilePath = movie.Path
+                            });
+                        }
+
+                        var stateBreakdown = movieTracked
+                            .GroupBy(m => m.CurrentState.ToString())
+                            .ToDictionary(g => g.Key, g => g.Count());
+                        if (movieTracked.Count == 0)
+                        {
+                            stateBreakdown["Untracked"] = 1;
+                        }
+
                         results.Add(new CatalogGroupDto
                         {
                             Title = movie.Title,
@@ -134,13 +158,11 @@ namespace Storarr.Controllers
                             TmdbId = movie.TmdbId > 0 ? movie.TmdbId : (int?)null,
                             TvdbId = null,
                             PosterUrl = GetPosterUrl(movie.Images),
-                            TotalEpisodes = movieTracked.Count,
+                            TotalEpisodes = Math.Max(1, movieTracked.Count),
                             TrackedEpisodes = movieTracked.Count,
                             TotalSizeBytes = movieTracked.Sum(m => m.FileSize ?? 0),
                             FormattedSize = FormatSize(movieTracked.Sum(m => m.FileSize ?? 0)),
-                            StateBreakdown = movieTracked
-                                .GroupBy(m => m.CurrentState.ToString())
-                                .ToDictionary(g => g.Key, g => g.Count()),
+                            StateBreakdown = stateBreakdown,
                             IsExcluded = isExcluded,
                             Episodes = episodes
                         });
@@ -211,6 +233,17 @@ namespace Storarr.Controllers
         {
             try
             {
+                // Validate required IDs
+                if (!dto.SonarrId.HasValue && !dto.RadarrId.HasValue)
+                {
+                    return BadRequest(new { error = "Either SonarrId or RadarrId is required." });
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.FilePath))
+                {
+                    return BadRequest(new { error = "FilePath is required." });
+                }
+
                 // Idempotency: check if already tracked
                 MediaItem? existing = null;
                 if (dto.SonarrId.HasValue && dto.SeasonNumber.HasValue && dto.EpisodeNumber.HasValue)

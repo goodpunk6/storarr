@@ -384,7 +384,7 @@ export default function CatalogView({ filters }: CatalogViewProps) {
       {/* Confirmation Dialog */}
       <ConfirmationDialog
         open={confirmDialog !== null}
-        title={confirmDialog?.action === 'toMkv' ? 'Convert to MKV' : 'Convert to Symlink'}
+        title={confirmDialog && confirmDialog.action === 'toMkv' ? `Convert ${confirmDialog.items.length} items to MKV` : `Convert ${confirmDialog?.items?.length ?? 0} items to Symlink`}
         items={confirmDialog?.items ?? []}
         action={confirmDialog?.action ?? 'toMkv'}
         onConfirm={handleConfirm}
