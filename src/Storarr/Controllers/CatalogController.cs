@@ -157,6 +157,134 @@ namespace Storarr.Controllers
             }
         }
 
+        /// <summary>
+        /// Get episodes for a specific series, combining Sonarr episode file data
+        /// with tracked MediaItem state.
+        /// </summary>
+        [HttpGet("{sonarrId}/episodes")]
+        public async Task<ActionResult<IEnumerable<CatalogEpisodeDto>>> GetSeriesEpisodes(int sonarrId)
+        {
+            try
+            {
+                var trackedItems = await _dbContext.MediaItems.AsNoTracking()
+                    .Where(m => m.SonarrId == sonarrId)
+                    .ToListAsync();
+
+                var episodeFiles = await _sonarrService.GetEpisodeFiles(sonarrId);
+                var series = await _sonarrService.GetSeries(sonarrId);
+                var seriesTitle = series?.Title ?? $"Series {sonarrId}";
+
+                var episodes = episodeFiles.Select(ep =>
+                {
+                    var tracked = trackedItems.FirstOrDefault(t =>
+                        t.SeasonNumber == ep.SeasonNumber &&
+                        t.EpisodeNumber == ep.EpisodeNumber);
+
+                    return new CatalogEpisodeDto
+                    {
+                        MediaItemId = tracked?.Id,
+                        SeasonNumber = ep.SeasonNumber,
+                        EpisodeNumber = ep.EpisodeNumber,
+                        Title = $"{seriesTitle} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}",
+                        CurrentState = tracked?.CurrentState.ToString() ?? "Untracked",
+                        FileSize = tracked?.FileSize ?? ep.Size,
+                        IsExcluded = tracked?.IsExcluded ?? false,
+                        FilePath = ep.Path
+                    };
+                }).ToList();
+
+                return Ok(episodes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting episodes for series {SonarrId}", sonarrId);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Creates a MediaItem if it doesn't already exist. Idempotent.
+        /// </summary>
+        [HttpPost("/api/v1/media/ensure-tracked")]
+        public async Task<ActionResult<EnsureTrackedResponseDto>> EnsureTracked(
+            [FromBody] EnsureTrackedRequestDto dto)
+        {
+            try
+            {
+                // Idempotency: check if already tracked
+                MediaItem? existing = null;
+                if (dto.SonarrId.HasValue && dto.SeasonNumber.HasValue && dto.EpisodeNumber.HasValue)
+                {
+                    existing = await _dbContext.MediaItems.FirstOrDefaultAsync(m =>
+                        m.SonarrId == dto.SonarrId &&
+                        m.SeasonNumber == dto.SeasonNumber &&
+                        m.EpisodeNumber == dto.EpisodeNumber);
+                }
+                else if (dto.RadarrId.HasValue)
+                {
+                    existing = await _dbContext.MediaItems.FirstOrDefaultAsync(m =>
+                        m.RadarrId == dto.RadarrId);
+                }
+
+                if (existing != null)
+                {
+                    return Ok(new EnsureTrackedResponseDto
+                    {
+                        MediaItemId = existing.Id,
+                        Created = false
+                    });
+                }
+
+                // TmdbId required for TransitionToSymlink
+                if (!dto.TmdbId.HasValue)
+                {
+                    return BadRequest(new { error = "TmdbId is required for tracking." });
+                }
+
+                // Validate file path
+                try
+                {
+                    await _fileService.ValidatePath(dto.FilePath);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return BadRequest(new { error = ex.Message });
+                }
+
+                var item = new MediaItem
+                {
+                    Title = dto.Title,
+                    Type = dto.Type,
+                    SonarrId = dto.SonarrId,
+                    RadarrId = dto.RadarrId,
+                    TmdbId = dto.TmdbId,
+                    FilePath = dto.FilePath,
+                    SeasonNumber = dto.SeasonNumber,
+                    EpisodeNumber = dto.EpisodeNumber,
+                    CurrentState = FileState.Symlink,
+                    CreatedAt = DateTime.UtcNow,
+                    StateChangedAt = DateTime.UtcNow,
+                    IsExcluded = false
+                };
+
+                _dbContext.MediaItems.Add(item);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Created tracked media item: {Title} (ID: {Id})", item.Title, item.Id);
+
+                return Ok(new EnsureTrackedResponseDto
+                {
+                    MediaItemId = item.Id,
+                    Created = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in EnsureTracked");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         private async Task<List<Series>> GetCachedSeries()
         {
             if (!_cache.TryGetValue("sonarr_series", out List<Series>? seriesList))
