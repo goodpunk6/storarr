@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Search, Link2, HardDrive, Download, Clock, Play, Pause, RefreshCw } from 'lucide-react'
 import { getMedia, forceDownload, forceSymlink, toggleExcluded } from '../api/client'
 import { MediaItem, useAppStore } from '../stores/appStore'
+import CatalogView from '../components/CatalogView'
 
 export default function Media() {
   const [items, setItems] = useState<MediaItem[]>([])
@@ -11,6 +12,7 @@ export default function Media() {
   const [stateFilter, setStateFilter] = useState<string>('')
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat')
   const { lastMediaUpdate } = useAppStore()
 
   const fetchMedia = useCallback(async () => {
@@ -150,124 +152,136 @@ export default function Media() {
           <option value="Series">Series</option>
           <option value="Anime">Anime</option>
         </select>
+        <button
+          onClick={() => setViewMode(viewMode === 'flat' ? 'grouped' : 'flat')}
+          className={`px-4 py-2 rounded-lg ${viewMode === 'grouped' ? 'bg-arr-accent text-white' : 'bg-arr-bg border border-arr-primary'}`}
+        >
+          {viewMode === 'flat' ? 'Grouped' : 'Flat'}
+        </button>
       </div>
 
       {/* Media List */}
-      <div className="bg-arr-card rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-arr-primary">
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">Title</th>
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">Type</th>
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">State</th>
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">Size</th>
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">Transition</th>
-              <th className="text-left px-4 py-3 text-arr-muted font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr
-                key={item.id}
-                className={`border-b border-arr-primary last:border-0 hover:bg-arr-primary/50 transition-colors ${item.isExcluded ? 'opacity-60' : ''}`}
-              >
-                <td className="px-4 py-3">
-                  <Link to={`/media/${item.id}`} className="hover:text-arr-accent">
-                    {item.title}
-                    {item.seasonNumber && item.episodeNumber && (
-                      <span className="text-arr-muted ml-2">
-                        S{item.seasonNumber.toString().padStart(2, '0')}E{item.episodeNumber.toString().padStart(2, '0')}
-                      </span>
-                    )}
-                    {item.isExcluded && (
-                      <span className="ml-2 px-1 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">
-                        EXCLUDED
-                      </span>
-                    )}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="px-2 py-1 bg-arr-primary rounded text-sm">{item.type}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm ${getStateColor(item.currentState)}`}>
-                    {getStateIcon(item.currentState)}
-                    {item.currentState}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-arr-muted">{formatSize(item.fileSize)}</td>
-                <td className="px-4 py-3 text-arr-muted">
-                  {item.isExcluded ? (
-                    <span className="text-red-400">Paused</span>
-                  ) : item.daysUntilTransition !== null && item.daysUntilTransition !== undefined ? (
-                    item.daysUntilTransition === 0 ? 'Now' :
-                    item.daysUntilTransition === 1 ? '1 day' :
-                    `${item.daysUntilTransition} days`
-                  ) : '-'}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {/* Force Download Button - for symlinks */}
-                    {(item.currentState === 'Symlink' || item.currentState === 'PendingSymlink') && (
-                      <button
-                        onClick={() => handleForceDownload(item.id)}
-                        disabled={actionLoading === item.id}
-                        className="p-1.5 bg-arr-success/20 hover:bg-arr-success/30 rounded text-arr-success disabled:opacity-50"
-                        title="Force Download (convert to MKV)"
-                      >
-                        {actionLoading === item.id ? (
-                          <RefreshCw size={16} className="animate-spin" />
-                        ) : (
-                          <Download size={16} />
+      {viewMode === 'flat' ? (
+        <>
+          <div className="bg-arr-card rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-arr-primary">
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">Title</th>
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">Type</th>
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">State</th>
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">Size</th>
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">Transition</th>
+                  <th className="text-left px-4 py-3 text-arr-muted font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-arr-primary last:border-0 hover:bg-arr-primary/50 transition-colors ${item.isExcluded ? 'opacity-60' : ''}`}
+                  >
+                    <td className="px-4 py-3">
+                      <Link to={`/media/${item.id}`} className="hover:text-arr-accent">
+                        {item.title}
+                        {item.seasonNumber && item.episodeNumber && (
+                          <span className="text-arr-muted ml-2">
+                            S{item.seasonNumber.toString().padStart(2, '0')}E{item.episodeNumber.toString().padStart(2, '0')}
+                          </span>
                         )}
-                      </button>
-                    )}
-
-                    {/* Force Symlink Button - for MKVs */}
-                    {(item.currentState === 'Mkv' || item.currentState === 'Downloading') && (
-                      <button
-                        onClick={() => handleForceSymlink(item.id)}
-                        disabled={actionLoading === item.id}
-                        className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded text-blue-400 disabled:opacity-50"
-                        title="Force Symlink (convert to streaming)"
-                      >
-                        {actionLoading === item.id ? (
-                          <RefreshCw size={16} className="animate-spin" />
-                        ) : (
-                          <Link2 size={16} />
+                        {item.isExcluded && (
+                          <span className="ml-2 px-1 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">
+                            EXCLUDED
+                          </span>
                         )}
-                      </button>
-                    )}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-1 bg-arr-primary rounded text-sm">{item.type}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm ${getStateColor(item.currentState)}`}>
+                        {getStateIcon(item.currentState)}
+                        {item.currentState}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-arr-muted">{formatSize(item.fileSize)}</td>
+                    <td className="px-4 py-3 text-arr-muted">
+                      {item.isExcluded ? (
+                        <span className="text-red-400">Paused</span>
+                      ) : item.daysUntilTransition !== null && item.daysUntilTransition !== undefined ? (
+                        item.daysUntilTransition === 0 ? 'Now' :
+                        item.daysUntilTransition === 1 ? '1 day' :
+                        `${item.daysUntilTransition} days`
+                      ) : '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {/* Force Download Button - for symlinks */}
+                        {(item.currentState === 'Symlink' || item.currentState === 'PendingSymlink') && (
+                          <button
+                            onClick={() => handleForceDownload(item.id)}
+                            disabled={actionLoading === item.id}
+                            className="p-1.5 bg-arr-success/20 hover:bg-arr-success/30 rounded text-arr-success disabled:opacity-50"
+                            title="Force Download (convert to MKV)"
+                          >
+                            {actionLoading === item.id ? (
+                              <RefreshCw size={16} className="animate-spin" />
+                            ) : (
+                              <Download size={16} />
+                            )}
+                          </button>
+                        )}
 
-                    {/* Exclude/Include Toggle */}
-                    <button
-                      onClick={() => handleToggleExcluded(item.id)}
-                      disabled={actionLoading === item.id}
-                      className={`p-1.5 rounded disabled:opacity-50 ${
-                        item.isExcluded
-                          ? 'bg-arr-success/20 hover:bg-arr-success/30 text-arr-success'
-                          : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
-                      }`}
-                      title={item.isExcluded ? 'Include in auto-transitions' : 'Exclude from auto-transitions'}
-                    >
-                      {actionLoading === item.id ? (
-                        <RefreshCw size={16} className="animate-spin" />
-                      ) : item.isExcluded ? (
-                        <Play size={16} />
-                      ) : (
-                        <Pause size={16} />
-                      )}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {items.length === 0 && (
-          <div className="text-center py-8 text-arr-muted">No media items found</div>
-        )}
-      </div>
+                        {/* Force Symlink Button - for MKVs */}
+                        {(item.currentState === 'Mkv' || item.currentState === 'Downloading') && (
+                          <button
+                            onClick={() => handleForceSymlink(item.id)}
+                            disabled={actionLoading === item.id}
+                            className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded text-blue-400 disabled:opacity-50"
+                            title="Force Symlink (convert to streaming)"
+                          >
+                            {actionLoading === item.id ? (
+                              <RefreshCw size={16} className="animate-spin" />
+                            ) : (
+                              <Link2 size={16} />
+                            )}
+                          </button>
+                        )}
+
+                        {/* Exclude/Include Toggle */}
+                        <button
+                          onClick={() => handleToggleExcluded(item.id)}
+                          disabled={actionLoading === item.id}
+                          className={`p-1.5 rounded disabled:opacity-50 ${
+                            item.isExcluded
+                              ? 'bg-arr-success/20 hover:bg-arr-success/30 text-arr-success'
+                              : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+                          }`}
+                          title={item.isExcluded ? 'Include in auto-transitions' : 'Exclude from auto-transitions'}
+                        >
+                          {actionLoading === item.id ? (
+                            <RefreshCw size={16} className="animate-spin" />
+                          ) : item.isExcluded ? (
+                            <Play size={16} />
+                          ) : (
+                            <Pause size={16} />
+                          )}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {items.length === 0 && (
+              <div className="text-center py-8 text-arr-muted">No media items found</div>
+            )}
+          </div>
+        </>
+      ) : (
+        <CatalogView filters={{ search, stateFilter, typeFilter }} />
+      )}
     </div>
   )
 }
