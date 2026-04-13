@@ -76,7 +76,8 @@ namespace Storarr.Services
                     TmdbId = m.TmdbId,
                     Path = m.Path,
                     QualityProfileId = m.QualityProfileId,
-                    MovieFileId = m.MovieFileId
+                    MovieFileId = m.MovieFileId,
+                    Images = m.Images
                 }) ?? Enumerable.Empty<Movie>();
             }
             catch (Exception ex)
@@ -106,7 +107,8 @@ namespace Storarr.Services
                     TmdbId = m.TmdbId,
                     Path = m.Path,
                     QualityProfileId = m.QualityProfileId,
-                    MovieFileId = m.MovieFileId
+                    MovieFileId = m.MovieFileId,
+                    Images = m.Images
                 };
             }
             catch (Exception ex)
@@ -330,6 +332,7 @@ namespace Storarr.Services
         public string? Path { get; set; }
         public int QualityProfileId { get; set; }
         public int? MovieFileId { get; set; }
+        public List<SonarrImage>? Images { get; set; }
     }
 
     internal class RadarrMovieFile

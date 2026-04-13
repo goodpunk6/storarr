@@ -25,6 +25,7 @@ namespace Storarr.Services
         public string? Path { get; set; }
         public int QualityProfileId { get; set; }
         public int? MovieFileId { get; set; }
+        public List<SonarrImage>? Images { get; set; }
     }
 
     public class MovieFile
