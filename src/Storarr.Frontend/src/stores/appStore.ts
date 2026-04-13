@@ -65,6 +65,50 @@ export interface ExcludedItem {
   removedMediaCount?: number
 }
 
+export interface CatalogGroupDto {
+  title: string
+  type: 'Movie' | 'Series' | 'Anime'
+  sonarrId?: number
+  radarrId?: number
+  tmdbId?: number
+  tvdbId?: number
+  posterUrl?: string
+  totalEpisodes: number
+  trackedEpisodes: number
+  totalSizeBytes: number
+  formattedSize: string
+  stateBreakdown: Record<string, number>
+  isExcluded: boolean
+  episodes: CatalogEpisodeDto[]
+}
+
+export interface CatalogEpisodeDto {
+  mediaItemId?: number
+  seasonNumber?: number
+  episodeNumber?: number
+  title: string
+  currentState: string
+  fileSize?: number
+  isExcluded: boolean
+  filePath?: string
+}
+
+export interface EnsureTrackedRequestDto {
+  sonarrId?: number
+  radarrId?: number
+  type: 'Movie' | 'Series' | 'Anime'
+  title: string
+  seasonNumber?: number
+  episodeNumber?: number
+  tmdbId?: number
+  filePath: string
+}
+
+export interface EnsureTrackedResponseDto {
+  mediaItemId: number
+  created: boolean
+}
+
 export type TimeUnit = 'Minutes' | 'Hours' | 'Days' | 'Weeks' | 'Months'
 export type LibraryMode = 'NewContentOnly' | 'TrackExisting' | 'FullAutomation'
 export type DownloadClientType = 'QBittorrent' | 'Transmission' | 'Sabnzbd'
@@ -106,6 +150,14 @@ export interface Config {
   downloadClient1: DownloadClientConfig
   downloadClient2: DownloadClientConfig
   downloadClient3: DownloadClientConfig
+  // STRM Refresh Schedule
+  strmRefreshEnabled: boolean
+  strmRefreshHour: number
+  strmRefreshMinute: number
+  strmRefreshDayOfWeek: string
+  strmRefreshInterval: string
+  strmRefreshLastRun?: string
+  strmRefreshNextRun?: string
 }
 
 interface AppState {

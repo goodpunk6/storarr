@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { CatalogGroupDto, CatalogEpisodeDto, EnsureTrackedRequestDto, EnsureTrackedResponseDto } from '../stores/appStore'
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -106,5 +107,15 @@ export const excludeByArrId = (data: {
   type?: string
   reason?: string
 }) => api.post('/exclusions/by-arr-id', data)
+
+// Catalog
+export const getCatalog = (params?: { type?: string; search?: string }) =>
+  api.get<CatalogGroupDto[]>('/catalog', { params })
+
+export const getSeriesEpisodes = (sonarrId: number) =>
+  api.get<CatalogEpisodeDto[]>(`/catalog/${sonarrId}/episodes`)
+
+export const ensureTracked = (data: EnsureTrackedRequestDto) =>
+  api.post<EnsureTrackedResponseDto>('/media/ensure-tracked', data)
 
 export default api
