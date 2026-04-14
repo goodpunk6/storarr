@@ -134,8 +134,35 @@ export default function CatalogView({ filters }: CatalogViewProps) {
     })
   }, [])
 
-  const toggleAllInGroup = useCallback((group: CatalogGroupDto) => {
-    const episodes = group.episodes
+  const toggleAllInGroup = useCallback(async (group: CatalogGroupDto) => {
+    let episodes = group.episodes
+
+    // If episodes haven't been loaded yet, load them first
+    if (episodes.length === 0 && group.type !== 'Movie' && group.sonarrId) {
+      setLoadingEpisodes((prev) => new Set(prev).add(group.sonarrId!))
+      try {
+        const response = await getSeriesEpisodes(group.sonarrId)
+        episodes = response.data
+        // Update catalog state so the expansion also has episodes
+        setCatalog((prev) =>
+          prev.map((g) =>
+            g.sonarrId === group.sonarrId ? { ...g, episodes } : g
+          )
+        )
+        // Auto-expand so user can see what was selected
+        setExpandedGroups((prev) => new Set(prev).add(group.sonarrId!))
+      } catch (error) {
+        console.error(`Failed to load episodes for sonarrId=${group.sonarrId}:`, error)
+        return
+      } finally {
+        setLoadingEpisodes((prev) => {
+          const next = new Set(prev)
+          next.delete(group.sonarrId!)
+          return next
+        })
+      }
+    }
+
     if (episodes.length === 0) return
 
     const allSelected = episodes.every((ep) => selectedEpisodes.has(getEpisodeKey(ep, group)))
@@ -470,17 +497,16 @@ function CatalogGroupRow({
       >
         {/* Checkbox */}
         <td className="w-10 px-2 py-3 text-center">
-          {group.episodes.length > 0 && (
-            <input
-              type="checkbox"
-              checked={selectionState === 'all'}
-              ref={(el) => {
-                if (el) el.indeterminate = selectionState === 'some'
-              }}
-              onChange={() => onToggleAllInGroup(group)}
-              className="rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent cursor-pointer"
-            />
-          )}
+          <input
+            type="checkbox"
+            checked={selectionState === 'all'}
+            ref={(el) => {
+              if (el) el.indeterminate = selectionState === 'some'
+            }}
+            onChange={() => onToggleAllInGroup(group)}
+            disabled={group.type === 'Series' && group.totalEpisodes === 0 && group.episodes.length === 0}
+            className="rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent cursor-pointer disabled:opacity-30"
+          />
         </td>
         {/* Expand chevron */}
         <td className="w-10 px-2 py-3 text-center">
