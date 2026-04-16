@@ -199,6 +199,9 @@ namespace Storarr.Controllers
                 var series = await _sonarrService.GetSeries(sonarrId);
                 var seriesTitle = series?.Title ?? $"Series {sonarrId}";
 
+                // Track which episodes were matched to Sonarr files
+                var matchedTrackedIds = new HashSet<int>();
+
                 var episodes = episodeFiles.Select(ep =>
                 {
                     // Parse season/episode from Sonarr filename first (Sonarr API often returns 0 for episode number)
@@ -221,6 +224,8 @@ namespace Storarr.Controllers
                         t.SeasonNumber == seasonNum &&
                         t.EpisodeNumber == episodeNum);
 
+                    if (tracked != null) matchedTrackedIds.Add(tracked.Id);
+
                     return new CatalogEpisodeDto
                     {
                         MediaItemId = tracked?.Id,
@@ -233,6 +238,40 @@ namespace Storarr.Controllers
                         FilePath = ep.Path
                     };
                 }).ToList();
+
+                // Add tracked items that have no corresponding Sonarr episode file
+                // (e.g. .strm files where Sonarr no longer tracks the episode file)
+                var unmatched = trackedItems.Where(t => !matchedTrackedIds.Contains(t.Id)).ToList();
+                foreach (var item in unmatched)
+                {
+                    var seasonNum = item.SeasonNumber ?? 0;
+                    var episodeNum = item.EpisodeNumber ?? 0;
+
+                    // Try parsing from filename if season/episode are 0
+                    if ((seasonNum == 0 || episodeNum == 0) && !string.IsNullOrEmpty(item.FilePath))
+                    {
+                        var fileName = System.IO.Path.GetFileNameWithoutExtension(item.FilePath);
+                        var match = System.Text.RegularExpressions.Regex.Match(
+                            fileName, @"S(\d{1,2})\s*E(\d{1,2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success)
+                        {
+                            seasonNum = int.Parse(match.Groups[1].Value);
+                            episodeNum = int.Parse(match.Groups[2].Value);
+                        }
+                    }
+
+                    episodes.Add(new CatalogEpisodeDto
+                    {
+                        MediaItemId = item.Id,
+                        SeasonNumber = seasonNum,
+                        EpisodeNumber = episodeNum,
+                        Title = $"{seriesTitle} S{seasonNum:D2}E{episodeNum:D2}",
+                        CurrentState = item.CurrentState.ToString(),
+                        FileSize = item.FileSize,
+                        IsExcluded = item.IsExcluded,
+                        FilePath = item.FilePath
+                    });
+                }
 
                 return Ok(episodes);
             }
