@@ -30,7 +30,7 @@ namespace Storarr.Services
             _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         }
 
-        private async Task ConfigureClient()
+        private async Task<(string baseUrl, string apiKey)> GetJellyseerrConfig()
         {
             var config = await GetConfig();
             if (string.IsNullOrEmpty(config.JellyseerrUrl) || string.IsNullOrEmpty(config.JellyseerrApiKey))
@@ -38,10 +38,15 @@ namespace Storarr.Services
                 throw new InvalidOperationException("Jellyseerr URL or API key not configured");
             }
 
-            _httpClient.BaseAddress = new Uri(config.JellyseerrUrl.TrimEnd('/') + "/");
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("X-Api-Key", config.JellyseerrApiKey);
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return (config.JellyseerrUrl.TrimEnd('/'), config.JellyseerrApiKey);
+        }
+
+        private HttpRequestMessage CreateRequest(HttpMethod method, string baseUrl, string path, string apiKey)
+        {
+            var request = new HttpRequestMessage(method, $"{baseUrl}/{path}");
+            request.Headers.Add("X-Api-Key", apiKey);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
         }
 
         private async Task<Config> GetConfig()
@@ -51,17 +56,19 @@ namespace Storarr.Services
 
         public async Task TestConnection()
         {
-            await ConfigureClient();
-            var response = await _httpClient.GetAsync("api/v1/status");
+            var (baseUrl, apiKey) = await GetJellyseerrConfig();
+            var request = CreateRequest(HttpMethod.Get, baseUrl, "api/v1/status", apiKey);
+            var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
         }
 
         public async Task<IEnumerable<MediaRequest>> GetRecentRequests(int limit = 50)
         {
-            await ConfigureClient();
+            var (baseUrl, apiKey) = await GetJellyseerrConfig();
             try
             {
-                var response = await _httpClient.GetAsync($"api/v1/request?take={limit}&sort=added");
+                var request = CreateRequest(HttpMethod.Get, baseUrl, $"api/v1/request?take={limit}&sort=added", apiKey);
+                var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -88,10 +95,11 @@ namespace Storarr.Services
 
         public async Task<MediaRequest?> GetRequest(int requestId)
         {
-            await ConfigureClient();
+            var (baseUrl, apiKey) = await GetJellyseerrConfig();
             try
             {
-                var response = await _httpClient.GetAsync($"api/v1/request/{requestId}");
+                var request = CreateRequest(HttpMethod.Get, baseUrl, $"api/v1/request/{requestId}", apiKey);
+                var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -120,27 +128,35 @@ namespace Storarr.Services
 
         public async Task<MediaRequest> CreateRequest(int tmdbId, MediaType type, int? tvdbId = null)
         {
-            await ConfigureClient();
+            var (baseUrl, apiKey) = await GetJellyseerrConfig();
             try
             {
                 var mediaType = type == MediaType.Movie ? "movie" : "tv";
 
-                var requestBody = new
+                // Build request body — only include tvdbId if present, use "all" for seasons on TV shows
+                var requestBody = new Dictionary<string, object?>
                 {
-                    mediaType,
-                    mediaId = tmdbId,
-                    tvdbId,
-                    // Pass null so Jellyseerr requests all available seasons (previously hardcoded new[] { 1 } only requested season 1)
-                    seasons = (int[]?)null
+                    ["mediaType"] = mediaType,
+                    ["mediaId"] = tmdbId,
                 };
+                if (tvdbId.HasValue) requestBody["tvdbId"] = tvdbId.Value;
+                if (type != MediaType.Movie) requestBody["seasons"] = "all";
 
-                var json = JsonSerializer.Serialize(requestBody);
+                var jsonOptions = new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+                var json = JsonSerializer.Serialize(requestBody, jsonOptions);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync("api/v1/request", content);
-                response.EnsureSuccessStatusCode();
+                var request = CreateRequest(HttpMethod.Post, baseUrl, "api/v1/request", apiKey);
+                request.Content = content;
 
+                var response = await _httpClient.SendAsync(request);
                 var responseContent = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Jellyseerr CreateRequest failed for TMDB {TmdbId} with {StatusCode}: {Body}", tmdbId, response.StatusCode, responseContent);
+                    response.EnsureSuccessStatusCode();
+                }
+
                 var r = JsonSerializer.Deserialize<JellyseerrRequest>(responseContent, _jsonOptions);
 
                 _logger.LogInformation("Created Jellyseerr request for TMDB {TmdbId}", tmdbId);

@@ -124,11 +124,33 @@ namespace Storarr.Services
         {
             _logger.LogInformation("[TransitionService] Transitioning {Title} from MKV to symlink", item.Title);
 
-            // Abort if TmdbId is null — we cannot create a Jellyseerr request without it
+            // If TmdbId is null, try to resolve it from Sonarr/Radarr
             if (!item.TmdbId.HasValue)
             {
-                _logger.LogWarning("[TransitionService] Cannot transition {Title} to symlink: TmdbId is null. Aborting to avoid data loss.", item.Title);
-                return;
+                _logger.LogInformation("[TransitionService] TmdbId is null for {Title}, resolving from Arr API", item.Title);
+                if (item.Type == MediaType.Series && item.SonarrId.HasValue)
+                {
+                    var series = await _sonarrService.GetSeries(item.SonarrId.Value);
+                    if (series?.TmdbId > 0)
+                    {
+                        item.TmdbId = series.TmdbId;
+                        _logger.LogInformation("[TransitionService] Resolved TmdbId={TmdbId} for {Title} from Sonarr", item.TmdbId, item.Title);
+                    }
+                }
+                else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                {
+                    var movie = await _radarrService.GetMovie(item.RadarrId.Value);
+                    if (movie?.TmdbId > 0)
+                    {
+                        item.TmdbId = movie.TmdbId;
+                        _logger.LogInformation("[TransitionService] Resolved TmdbId={TmdbId} for {Title} from Radarr", item.TmdbId, item.Title);
+                    }
+                }
+
+                if (!item.TmdbId.HasValue)
+                {
+                    throw new InvalidOperationException($"Cannot transition {item.Title} to symlink: TmdbId is null and could not be resolved from Sonarr/Radarr.");
+                }
             }
 
             try
