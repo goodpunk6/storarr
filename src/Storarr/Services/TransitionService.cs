@@ -105,7 +105,6 @@ namespace Storarr.Services
                 var previousState = item.CurrentState;
                 item.CurrentState = FileState.Downloading;
                 item.StateChangedAt = DateTime.UtcNow;
-                item.FileSize = 0;
                 await _dbContext.SaveChangesAsync();
                 await LogActivity(item.Id, "TransitionToMkv", previousState, FileState.Downloading,
                     apiDeleted ? "Deleted via Arr API" : "Deleted from disk");
@@ -184,7 +183,6 @@ namespace Storarr.Services
                 var previousState = item.CurrentState;
                 item.CurrentState = FileState.PendingSymlink;
                 item.StateChangedAt = DateTime.UtcNow;
-                item.FileSize = 0;
                 await _dbContext.SaveChangesAsync();
                 await LogActivity(item.Id, "TransitionToSymlink", previousState, FileState.PendingSymlink,
                     apiDeleted ? "Deleted via Arr API" : "Deleted from disk");

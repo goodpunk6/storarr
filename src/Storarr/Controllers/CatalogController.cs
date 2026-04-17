@@ -86,8 +86,8 @@ namespace Storarr.Controllers
                             PosterUrl = GetPosterUrl(series.Images),
                             TotalEpisodes = seriesTracked.Count,
                             TrackedEpisodes = seriesTracked.Count,
-                            TotalSizeBytes = seriesTracked.Sum(m => m.FileSize ?? 0),
-                            FormattedSize = FormatSize(seriesTracked.Sum(m => m.FileSize ?? 0)),
+                            TotalSizeBytes = seriesTracked.Where(m => m.CurrentState == FileState.Mkv || m.CurrentState == FileState.Symlink).Sum(m => m.FileSize ?? 0),
+                            FormattedSize = FormatSize(seriesTracked.Where(m => m.CurrentState == FileState.Mkv || m.CurrentState == FileState.Symlink).Sum(m => m.FileSize ?? 0)),
                             StateBreakdown = seriesTracked
                                 .GroupBy(m => m.CurrentState.ToString())
                                 .ToDictionary(g => g.Key, g => g.Count()),
@@ -160,8 +160,8 @@ namespace Storarr.Controllers
                             PosterUrl = GetPosterUrl(movie.Images),
                             TotalEpisodes = Math.Max(1, movieTracked.Count),
                             TrackedEpisodes = movieTracked.Count,
-                            TotalSizeBytes = movieTracked.Sum(m => m.FileSize ?? 0),
-                            FormattedSize = FormatSize(movieTracked.Sum(m => m.FileSize ?? 0)),
+                            TotalSizeBytes = movieTracked.Where(m => m.CurrentState == FileState.Mkv || m.CurrentState == FileState.Symlink).Sum(m => m.FileSize ?? 0),
+                            FormattedSize = FormatSize(movieTracked.Where(m => m.CurrentState == FileState.Mkv || m.CurrentState == FileState.Symlink).Sum(m => m.FileSize ?? 0)),
                             StateBreakdown = stateBreakdown,
                             IsExcluded = isExcluded,
                             Episodes = episodes
