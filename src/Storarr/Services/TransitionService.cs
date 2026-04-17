@@ -237,7 +237,7 @@ namespace Storarr.Services
                     _logger.LogInformation("[TransitionService] Auto-transitioning symlink '{Title}' to MKV (unwatched for {Time})",
                         item.Title, timeSinceWatch);
                     try { await TransitionToMkv(item); }
-                    catch (Exception ex) { _logger.LogError(ex, "[TransitionService] Failed to auto-transition to MKV"); }
+                    catch (Exception ex) { _logger.LogError(ex, "[TransitionService] Failed to auto-transition to MKV"); break; }
                 }
             }
 
@@ -258,6 +258,9 @@ namespace Storarr.Services
                         item.Title, timeInactive);
                     try { await TransitionToSymlink(item); }
                     catch (Exception ex) { _logger.LogError(ex, "[TransitionService] Failed to auto-transition to symlink"); }
+
+                    // Stop after first failure to avoid flooding Jellyseerr
+                    break;
                 }
             }
 
