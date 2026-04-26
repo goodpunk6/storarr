@@ -26,19 +26,23 @@ Delete MKV → TryDirectReleaseGrab(NZBdab) → fail → Jellyseerr → full MKV
 
 **New flow:**
 ```
-Delete MKV → Check if usenet releases available
-  → If yes: Trigger Sonarr/Radarr search command (they pick NZBdav)
-  → If no: Don't delete the MKV, skip transition, log warning
+Check if usenet releases available
+  → If yes: Delete MKV → Trigger Sonarr/Radarr search command (they pick NZBdav)
+  → If no: Skip transition, keep the MKV, log warning
 ```
+
+Note: usenet check happens BEFORE deletion to avoid losing the file if the search trigger subsequently fails.
 
 **Changes to `TransitionService.TransitionToSymlink` (lines ~185-198):**
 
 1. Before deleting the MKV, call new `CheckUsenetAvailable` method
 2. `CheckUsenetAvailable`: searches releases via Sonarr/Radarr API, returns true if any `downloadAllowed` release has `protocol: "usenet"`
-3. If no usenet releases: abort the transition, log warning, don't change state
-4. If usenet releases exist: delete MKV, then trigger Sonarr/Radarr search command
-   - Sonarr: `POST /api/v3/command` with `{ name: "EpisodeSearch", episodeIds: [id] }`
-   - Radarr: `POST /api/v3/command` with `{ name: "MoviesSearch", movieIds: [id] }`
+   - For Series and Anime types: resolve episode ID (same logic as `TryDirectReleaseGrab` lines 379-389), then search releases
+   - For Movie type: search releases by movieId
+3. If no usenet releases: abort the transition, log warning, don't change state, don't delete the file
+4. If usenet releases exist: delete MKV, then trigger Sonarr/Radarr search command using existing methods:
+   - Sonarr: `TriggerSearch(seriesId, episodeIds)` — already exists in `ISonarrService`
+   - Radarr: `TriggerSearch(movieId)` — already exists in `IRadarrService`
 5. Sonarr/Radarr handle release selection — NZBdav is picked first (no priority)
 6. Remove the Jellyseerr fallback entirely from this path
 
@@ -49,10 +53,7 @@ No changes. `TryDirectReleaseGrab` continues to use a specific `downloadClientId
 ### Files changed
 
 - `src/Storarr/Services/TransitionService.cs` — modify `TransitionToSymlink`, add `CheckUsenetAvailable`
-- `src/Storarr/Services/ISonarrService.cs` — add `TriggerEpisodeSearch(int seriesId, int[] episodeIds)` if not present
-- `src/Storarr/Services/IRadarrService.cs` — add `TriggerMovieSearch(int movieId)` if not present
-- `src/Storarr/Services/SonarrService.cs` — implement `TriggerEpisodeSearch`
-- `src/Storarr/Services/RadarrService.cs` — implement `TriggerMovieSearch`
+- `ISonarrService.cs` / `IRadarrService.cs` / `SonarrService.cs` / `RadarrService.cs` — no changes needed, `TriggerSearch` and `SearchReleases` already exist
 
 ### What stays the same
 
