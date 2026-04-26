@@ -125,40 +125,20 @@ namespace Storarr.Services
 
         public async Task TransitionToSymlink(MediaItem item)
         {
-            _logger.LogInformation("[TransitionService] Transitioning {Title} from MKV to symlink", item.Title);
-
-            // If TmdbId is null, try to resolve it from Sonarr/Radarr
-            if (!item.TmdbId.HasValue)
-            {
-                _logger.LogInformation("[TransitionService] TmdbId is null for {Title}, resolving from Arr API", item.Title);
-                if (item.Type == MediaType.Series && item.SonarrId.HasValue)
-                {
-                    var series = await _sonarrService.GetSeries(item.SonarrId.Value);
-                    if (series?.TmdbId > 0)
-                    {
-                        item.TmdbId = series.TmdbId;
-                        _logger.LogInformation("[TransitionService] Resolved TmdbId={TmdbId} for {Title} from Sonarr", item.TmdbId, item.Title);
-                    }
-                }
-                else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                {
-                    var movie = await _radarrService.GetMovie(item.RadarrId.Value);
-                    if (movie?.TmdbId > 0)
-                    {
-                        item.TmdbId = movie.TmdbId;
-                        _logger.LogInformation("[TransitionService] Resolved TmdbId={TmdbId} for {Title} from Radarr", item.TmdbId, item.Title);
-                    }
-                }
-
-                if (!item.TmdbId.HasValue)
-                {
-                    throw new InvalidOperationException($"Cannot transition {item.Title} to symlink: TmdbId is null and could not be resolved from Sonarr/Radarr.");
-                }
-            }
+            if (item == null) throw new ArgumentNullException(nameof(item));
+            if (item.TmdbId == null) throw new InvalidOperationException("Item must have a TMDb ID");
 
             try
             {
-                // First, try to delete via Sonarr/Radarr API so their internal state is updated
+                // Check if usenet releases are available before doing anything
+                var hasUsenet = await CheckUsenetAvailable(item);
+                if (!hasUsenet)
+                {
+                    _logger.LogInformation("[TransitionService] No usenet releases available for {Title}, skipping symlink transition", item.Title);
+                    return;
+                }
+
+                // Delete the file via Arr API and/or disk
                 bool apiDeleted = false;
                 var arrFilePath = RemapToArrPath(item.FilePath);
 
@@ -175,26 +155,36 @@ namespace Storarr.Services
                         || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
                 }
 
-                // If API deletion failed or file still exists, delete from disk
                 if (await _fileService.FileExists(item.FilePath))
                 {
                     _logger.LogDebug("[TransitionService] Deleting file from disk: {Path}", item.FilePath);
                     await _fileService.DeleteFile(item.FilePath);
                 }
 
-                // Try direct release grab via Sonarr/Radarr with specific download client
-                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
-                bool grabbed = false;
-
-                if (config != null)
+                // Trigger Sonarr/Radarr search — they will pick NZBdav for usenet releases
+                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
                 {
-                    grabbed = await TryDirectReleaseGrab(item, config);
+                    await _radarrService.TriggerSearch(item.RadarrId.Value);
                 }
-
-                if (!grabbed)
+                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                 {
-                    _logger.LogInformation("[TransitionService] Direct grab not available, falling back to Jellyseerr for {Title}", item.Title);
-                    await _jellyseerrService.CreateRequest(item.TmdbId.Value, item.Type, item.TvdbId);
+                    if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                    {
+                        var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                        if (episodeId.HasValue)
+                        {
+                            await _sonarrService.TriggerSearch(item.SonarrId.Value, new[] { episodeId.Value });
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[TransitionService] Could not resolve episode ID for {Title}, triggering series search", item.Title);
+                            await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                        }
+                    }
+                    else
+                    {
+                        await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                    }
                 }
 
                 var previousState = item.CurrentState;
