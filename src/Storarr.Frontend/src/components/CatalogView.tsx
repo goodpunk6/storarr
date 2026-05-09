@@ -78,11 +78,14 @@ export default function CatalogView({ filters }: CatalogViewProps) {
     loadCatalog()
   }, [loadCatalog])
 
-  // Auto-dismiss batch result after 5 seconds
+  // Auto-dismiss batch result and progress after 5 seconds
   useEffect(() => {
     if (batchResult && !batchProgress?.running) {
       if (batchResultTimer.current) clearTimeout(batchResultTimer.current)
-      batchResultTimer.current = setTimeout(() => setBatchResult(null), 5000)
+      batchResultTimer.current = setTimeout(() => {
+        setBatchResult(null)
+        setBatchProgress(null)
+      }, 5000)
     }
     return () => {
       if (batchResultTimer.current) clearTimeout(batchResultTimer.current)
