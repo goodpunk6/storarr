@@ -358,6 +358,189 @@ namespace Storarr.Services
                 return new List<SonarrQueueItem>();
             }
         }
+
+        public async Task<int?> GetEpisodeId(int seriesId, int seasonNumber, int episodeNumber)
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, $"api/v3/episode?seriesId={seriesId}");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<SonarrEpisodeResponse>>(content, _jsonOptions);
+
+                var episode = data?.FirstOrDefault(e =>
+                    e.SeasonNumber == seasonNumber && e.EpisodeNumber == episodeNumber);
+
+                return episode?.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get episode ID for series {SeriesId} S{SeasonNumber}E{EpisodeNumber}",
+                    seriesId, seasonNumber, episodeNumber);
+                return null;
+            }
+        }
+
+        public async Task<IEnumerable<ReleaseResult>> SearchReleases(int seriesId, int[] episodeIds)
+        {
+            try
+            {
+                var episodeIdsParam = string.Join(",", episodeIds);
+                var request = await CreateRequest(HttpMethod.Get,
+                    $"api/v3/release?seriesId={seriesId}&episodeIds={episodeIdsParam}");
+                var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Sonarr release search for series {SeriesId} returned {StatusCode}", seriesId, response.StatusCode);
+                    return Enumerable.Empty<ReleaseResult>();
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<SonarrReleaseResponse>>(content, _jsonOptions);
+
+                return data?.Select(r => new ReleaseResult
+                {
+                    Guid = r.Guid,
+                    Title = r.Title,
+                    Size = r.Size,
+                    IndexerId = r.IndexerId,
+                    DownloadAllowed = r.DownloadAllowed,
+                    Protocol = r.Protocol,
+                    QualityWeight = r.QualityWeight,
+                    CustomFormatScore = r.CustomFormatScore,
+                    Seeders = r.Seeders
+                }) ?? Enumerable.Empty<ReleaseResult>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to search releases for series {SeriesId}", seriesId);
+                return Enumerable.Empty<ReleaseResult>();
+            }
+        }
+
+        public async Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null)
+        {
+            try
+            {
+                var body = new Dictionary<string, object>
+                {
+                    ["guid"] = guid,
+                    ["indexerId"] = indexerId
+                };
+                if (downloadClientId.HasValue)
+                {
+                    body["downloadClientId"] = downloadClientId.Value;
+                }
+                if (seriesId.HasValue)
+                {
+                    body["seriesId"] = seriesId.Value;
+                }
+                if (episodeIds != null && episodeIds.Length > 0)
+                {
+                    body["episodeIds"] = episodeIds;
+                }
+
+                var json = JsonSerializer.Serialize(body);
+                var request = await CreateRequest(HttpMethod.Post, "api/v3/release");
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return new GrabResult { Success = true };
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to grab release {Guid}: {StatusCode} - {Error}",
+                    guid, response.StatusCode, errorContent);
+                return new GrabResult
+                {
+                    Success = false,
+                    ErrorMessage = $"HTTP {response.StatusCode}: {errorContent}"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to grab release {Guid}", guid);
+                return new GrabResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        public async Task<IEnumerable<DownloadClientInfo>> GetDownloadClients()
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, "api/v3/downloadclient");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<SonarrDownloadClientResponse>>(content, _jsonOptions);
+
+                return data?.Select(d => new DownloadClientInfo
+                {
+                    Id = d.Id,
+                    Name = d.Name,
+                    Implementation = d.Implementation,
+                    Enable = d.Enable
+                }) ?? Enumerable.Empty<DownloadClientInfo>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get download clients from Sonarr");
+                return Enumerable.Empty<DownloadClientInfo>();
+            }
+        }
+
+        public async Task<HashSet<string>> GetBlocklistedTitles()
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, "api/v3/blocklist?page=1&pageSize=100");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<SonarrBlocklistResponse>(content, _jsonOptions);
+
+                return data?.Records?.Select(r => r.SourceTitle).ToHashSet() ?? new HashSet<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get blocklist from Sonarr");
+                return new HashSet<string>();
+            }
+        }
+
+        public async Task DeleteSeries(int seriesId, bool deleteFiles = false)
+        {
+            var request = await CreateRequest(HttpMethod.Delete, $"api/v3/series/{seriesId}?deleteFiles={deleteFiles.ToString().ToLowerInvariant()}");
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+
+        public async Task SetSeriesMonitorState(int seriesId, bool monitored)
+        {
+            var getRequest = await CreateRequest(HttpMethod.Get, $"api/v3/series/{seriesId}");
+            var getResponse = await _httpClient.SendAsync(getRequest);
+            getResponse.EnsureSuccessStatusCode();
+            var content = await getResponse.Content.ReadAsStringAsync();
+            var series = JsonSerializer.Deserialize<Series>(content, _jsonOptions);
+            if (series == null) throw new InvalidOperationException($"Failed to deserialize series {seriesId}");
+
+            series.Monitored = monitored;
+            var putRequest = await CreateRequest(HttpMethod.Put, $"api/v3/series/{seriesId}");
+            putRequest.Content = new StringContent(JsonSerializer.Serialize(series, _jsonOptions), Encoding.UTF8, "application/json");
+            var putResponse = await _httpClient.SendAsync(putRequest);
+            putResponse.EnsureSuccessStatusCode();
+        }
     }
 
     // JSON response models
@@ -413,5 +596,44 @@ namespace Storarr.Services
         public long Size { get; set; }
         public long SizeLeft { get; set; }
         public string? ErrorMessage { get; set; }
+    }
+
+    internal class SonarrEpisodeResponse
+    {
+        public int Id { get; set; }
+        public int SeriesId { get; set; }
+        public int SeasonNumber { get; set; }
+        public int EpisodeNumber { get; set; }
+    }
+
+    internal class SonarrReleaseResponse
+    {
+        public string Guid { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public int IndexerId { get; set; }
+        public bool DownloadAllowed { get; set; }
+        public string? Protocol { get; set; }
+        public int QualityWeight { get; set; }
+        public int CustomFormatScore { get; set; }
+        public int? Seeders { get; set; }
+    }
+
+    internal class SonarrDownloadClientResponse
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Implementation { get; set; } = string.Empty;
+        public bool Enable { get; set; }
+    }
+
+    internal class SonarrBlocklistResponse
+    {
+        public List<SonarrBlocklistItem>? Records { get; set; }
+    }
+
+    internal class SonarrBlocklistItem
+    {
+        public string SourceTitle { get; set; } = string.Empty;
     }
 }
