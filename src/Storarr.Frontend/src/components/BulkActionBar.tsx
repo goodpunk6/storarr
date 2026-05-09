@@ -1,4 +1,4 @@
-import { Download, Link2 } from 'lucide-react'
+import { Download, Link2, Settings, X } from 'lucide-react'
 
 interface BulkActionBarProps {
   selectedCount: number
@@ -6,6 +6,8 @@ interface BulkActionBarProps {
   hasEligibleForSymlink: boolean
   onConvertToMkv: () => void
   onConvertToSymlink: () => void
+  onManage?: () => void
+  onDeselectAll: () => void
 }
 
 export default function BulkActionBar({
@@ -14,16 +16,36 @@ export default function BulkActionBar({
   hasEligibleForSymlink,
   onConvertToMkv,
   onConvertToSymlink,
+  onManage,
+  onDeselectAll,
 }: BulkActionBarProps) {
   if (selectedCount === 0) return null
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-arr-card border-t border-arr-primary">
       <div className="flex items-center justify-between px-6 py-3">
-        <span className="text-arr-muted">
-          {selectedCount} item{selectedCount !== 1 ? 's' : ''} selected
-        </span>
         <div className="flex items-center gap-3">
+          <button
+            onClick={onDeselectAll}
+            className="text-arr-muted hover:text-arr-text px-2 py-1 rounded flex items-center gap-1.5 transition-colors text-sm"
+          >
+            <X className="w-4 h-4" />
+            Deselect All
+          </button>
+          <span className="text-arr-muted">
+            {selectedCount} item{selectedCount !== 1 ? 's' : ''} selected
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {onManage && (
+            <button
+              onClick={onManage}
+              className="flex items-center gap-2 px-4 py-2 bg-arr-accent hover:bg-arr-accent/80 text-white rounded-md transition-colors text-sm font-medium"
+            >
+              <Settings className="w-4 h-4" />
+              Manage
+            </button>
+          )}
           <button
             onClick={onConvertToMkv}
             disabled={!hasEligibleForMkv}
