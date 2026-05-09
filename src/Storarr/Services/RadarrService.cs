@@ -297,6 +297,8 @@ namespace Storarr.Services
         {
             var request = await CreateRequest(HttpMethod.Delete, $"api/v3/movie/{movieId}?deleteFiles={deleteFiles.ToString().ToLowerInvariant()}");
             var response = await _httpClient.SendAsync(request);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return;
             response.EnsureSuccessStatusCode();
         }
 

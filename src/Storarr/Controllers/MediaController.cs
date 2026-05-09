@@ -327,14 +327,20 @@ namespace Storarr.Controllers
                     {
                         try
                         {
+                            var fileDeleted = false;
                             if (isSonarr)
                             {
                                 if (item.SonarrId.HasValue)
                                 {
                                     if (item.SonarrFileId.HasValue)
+                                    {
                                         await _sonarrService.DeleteEpisodeFile(item.SonarrFileId.Value);
+                                        fileDeleted = true;
+                                    }
                                     else
-                                        await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath);
+                                    {
+                                        fileDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath);
+                                    }
                                 }
                                 else
                                 {
@@ -346,9 +352,14 @@ namespace Storarr.Controllers
                                 if (item.RadarrId.HasValue)
                                 {
                                     if (item.RadarrFileId.HasValue)
+                                    {
                                         await _radarrService.DeleteMovieFile(item.RadarrFileId.Value);
+                                        fileDeleted = true;
+                                    }
                                     else
-                                        await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath);
+                                    {
+                                        fileDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath);
+                                    }
                                 }
                                 else
                                 {
@@ -356,10 +367,15 @@ namespace Storarr.Controllers
                                 }
                             }
 
-                            if (!result.Errors.Any(e => e.Contains("cannot delete file")))
+                            if (fileDeleted && !result.Errors.Any(e => e.Contains("cannot delete file")))
                             {
                                 result.Actions.Add("deleteFiles");
                                 _logger.LogInformation("[MediaController] Deleted file for {Title} (ID={Id})", item.Title, item.Id);
+                            }
+                            else if (!result.Errors.Any())
+                            {
+                                result.Errors.Add("File not found in Sonarr/Radarr — may already be deleted");
+                                _logger.LogWarning("[MediaController] File not found in arr for {Title}: {Path}", item.Title, item.FilePath);
                             }
                         }
                         catch (Exception ex)
