@@ -20,17 +20,23 @@ namespace Storarr.Controllers
         private readonly ITransitionService _transitionService;
         private readonly IFileManagementService _fileService;
         private readonly ILogger<MediaController> _logger;
+        private readonly ISonarrService _sonarrService;
+        private readonly IRadarrService _radarrService;
 
         public MediaController(
             StorarrDbContext dbContext,
             ITransitionService transitionService,
             IFileManagementService fileService,
-            ILogger<MediaController> logger)
+            ILogger<MediaController> logger,
+            ISonarrService sonarrService,
+            IRadarrService radarrService)
         {
             _dbContext = dbContext;
             _transitionService = transitionService;
             _fileService = fileService;
             _logger = logger;
+            _sonarrService = sonarrService;
+            _radarrService = radarrService;
         }
 
         [HttpGet]
@@ -277,6 +283,261 @@ namespace Storarr.Controllers
             await _dbContext.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        [HttpPost("manage")]
+        public async Task<ActionResult<ManageMediaResultDto>> ManageMedia([FromBody] ManageMediaRequestDto request)
+        {
+            // Validation
+            if (request.ItemIds == null || request.ItemIds.Count == 0)
+                return BadRequest("No items selected");
+
+            if (!request.DeleteFiles && !request.RemoveFromArr && !request.Unmonitor && !request.ReMonitor)
+                return BadRequest("At least one action must be selected");
+
+            if (request.RemoveFromArr && (request.Unmonitor || request.ReMonitor))
+                return BadRequest("Cannot combine 'remove from Sonarr/Radarr' with monitor state changes");
+
+            if (request.Unmonitor && request.ReMonitor)
+                return BadRequest("Cannot both unmonitor and re-monitor");
+
+            var results = new List<ManageMediaItemResult>();
+
+            foreach (var itemId in request.ItemIds)
+            {
+                var result = new ManageMediaItemResult { ItemId = itemId };
+                var item = await _dbContext.MediaItems.FindAsync(itemId);
+
+                if (item == null)
+                {
+                    result.Errors.Add("Item not found in Storarr database");
+                    results.Add(result);
+                    continue;
+                }
+
+                result.Title = item.Title;
+                result.Type = item.Type.ToString();
+
+                try
+                {
+                    var isSonarr = item.Type == MediaType.Series || item.Type == MediaType.Anime;
+
+                    // Step 1: Delete files
+                    if (request.DeleteFiles)
+                    {
+                        try
+                        {
+                            if (isSonarr)
+                            {
+                                if (item.SonarrId.HasValue)
+                                {
+                                    if (item.SonarrFileId.HasValue)
+                                        await _sonarrService.DeleteEpisodeFile(item.SonarrFileId.Value);
+                                    else
+                                        await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath);
+                                }
+                                else
+                                {
+                                    result.Errors.Add("No Sonarr ID — cannot delete file");
+                                }
+                            }
+                            else
+                            {
+                                if (item.RadarrId.HasValue)
+                                {
+                                    if (item.RadarrFileId.HasValue)
+                                        await _radarrService.DeleteMovieFile(item.RadarrFileId.Value);
+                                    else
+                                        await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath);
+                                }
+                                else
+                                {
+                                    result.Errors.Add("No Radarr ID — cannot delete file");
+                                }
+                            }
+
+                            if (!result.Errors.Any(e => e.Contains("cannot delete file")))
+                            {
+                                result.Actions.Add("deleteFiles");
+                                _logger.LogInformation("[MediaController] Deleted file for {Title} (ID={Id})", item.Title, item.Id);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Errors.Add($"Failed to delete file: {ex.Message}");
+                            _logger.LogWarning(ex, "[MediaController] Failed to delete file for {Title}", item.Title);
+                        }
+                    }
+
+                    // Step 2: Monitor state
+                    if (request.Unmonitor || request.ReMonitor)
+                    {
+                        var monitored = request.ReMonitor;
+                        try
+                        {
+                            if (isSonarr && item.SonarrId.HasValue)
+                            {
+                                await _sonarrService.SetSeriesMonitorState(item.SonarrId.Value, monitored);
+                                result.Actions.Add(monitored ? "reMonitor" : "unmonitor");
+                            }
+                            else if (!isSonarr && item.RadarrId.HasValue)
+                            {
+                                await _radarrService.SetMovieMonitorState(item.RadarrId.Value, monitored);
+                                result.Actions.Add(monitored ? "reMonitor" : "unmonitor");
+                            }
+                            else
+                            {
+                                result.Errors.Add($"No {(isSonarr ? "Sonarr" : "Radarr")} ID — cannot change monitor state");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Errors.Add($"Failed to change monitor state: {ex.Message}");
+                            _logger.LogWarning(ex, "[MediaController] Failed to change monitor state for {Title}", item.Title);
+                        }
+                    }
+
+                    // Step 3: Remove from arr
+                    if (request.RemoveFromArr)
+                    {
+                        try
+                        {
+                            // Files were already deleted in step 1, so don't double-delete
+                            var shouldDeleteFiles = false;
+                            if (isSonarr && item.SonarrId.HasValue)
+                            {
+                                await _sonarrService.DeleteSeries(item.SonarrId.Value, shouldDeleteFiles);
+                                result.Actions.Add("removeFromArr");
+                            }
+                            else if (!isSonarr && item.RadarrId.HasValue)
+                            {
+                                await _radarrService.DeleteMovie(item.RadarrId.Value, shouldDeleteFiles);
+                                result.Actions.Add("removeFromArr");
+                            }
+                            else
+                            {
+                                result.Errors.Add($"No {(isSonarr ? "Sonarr" : "Radarr")} ID — cannot remove from arr");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Errors.Add($"Failed to remove from arr: {ex.Message}");
+                            _logger.LogWarning(ex, "[MediaController] Failed to remove {Title} from arr", item.Title);
+                        }
+                    }
+
+                    // Step 4: Update Storarr DB
+                    var keepInDb = request.RemoveFromArr && !request.DeleteFiles;
+
+                    if (keepInDb)
+                    {
+                        item.SonarrId = null;
+                        item.RadarrId = null;
+                        item.SonarrFileId = null;
+                        item.RadarrFileId = null;
+                        item.CurrentState = FileState.Symlink;
+                        item.StateChangedAt = DateTime.UtcNow;
+                        _logger.LogInformation("[MediaController] Cleared arr IDs for {Title} — keeping in DB (files on disk)", item.Title);
+                    }
+                    else if (request.DeleteFiles || request.RemoveFromArr)
+                    {
+                        _dbContext.MediaItems.Remove(item);
+                        _logger.LogInformation("[MediaController] Removed {Title} from Storarr DB", item.Title);
+                    }
+
+                    // Step 5: Activity log
+                    foreach (var action in result.Actions)
+                    {
+                        _dbContext.ActivityLogs.Add(new ActivityLog
+                        {
+                            MediaItemId = item.Id,
+                            Action = $"Manage_{action}",
+                            FromState = item.CurrentState.ToString(),
+                            ToState = keepInDb ? "Cleared" : "Removed",
+                            Details = $"Manage action: {action}",
+                            Timestamp = DateTime.UtcNow
+                        });
+                    }
+
+                    result.Success = !result.Errors.Any() || result.Actions.Any();
+                }
+                catch (Exception ex)
+                {
+                    result.Errors.Add($"Unexpected error: {ex.Message}");
+                    _logger.LogError(ex, "[MediaController] Unexpected error managing {Title}", item.Title);
+                }
+
+                results.Add(result);
+            }
+
+            await _dbContext.SaveChangesAsync();
+            return Ok(new ManageMediaResultDto { Results = results });
+        }
+
+        [HttpPost("clear-ghost-pending")]
+        public async Task<ActionResult> ClearGhostPending()
+        {
+            _logger.LogDebug("[MediaController] ClearGhostPending called");
+
+            var pendingItems = await _dbContext.MediaItems
+                .Where(m => m.CurrentState == FileState.PendingSymlink || m.CurrentState == FileState.Downloading)
+                .ToListAsync();
+
+            _logger.LogDebug("[MediaController] Found {Count} PendingSymlink items", pendingItems.Count);
+
+            int cleared = 0;
+            foreach (var item in pendingItems)
+            {
+                var fileExists = await _fileService.FileExists(item.FilePath);
+                FileState newState;
+
+                if (!fileExists)
+                {
+                    // File gone — revert based on path extension
+                    newState = item.FilePath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
+                        ? FileState.Symlink
+                        : FileState.Mkv;
+                }
+                else if (item.FilePath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
+                    || await _fileService.IsSymlink(item.FilePath))
+                {
+                    // File exists but is a .strm/symlink — webhook missed it, state should be Symlink
+                    newState = FileState.Symlink;
+                }
+                else
+                {
+                    // File exists and is a real file — might be a legitimate download in progress
+                    _logger.LogDebug("[MediaController] Skipping {Title} — real file exists at {Path}", item.Title, item.FilePath);
+                    continue;
+                }
+
+                _logger.LogInformation("[MediaController] Clearing ghost PendingSymlink for {Title} — reverting to {State}", item.Title, newState);
+
+                var previousState = item.CurrentState;
+                item.CurrentState = newState;
+                item.StateChangedAt = DateTime.UtcNow;
+
+                _dbContext.ActivityLogs.Add(new ActivityLog
+                {
+                    MediaItemId = item.Id,
+                    Action = "ClearGhostPending",
+                    FromState = previousState.ToString(),
+                    ToState = newState.ToString(),
+                    Details = "File not found on disk, reverting from ghost PendingSymlink",
+                    Timestamp = DateTime.UtcNow
+                });
+
+                cleared++;
+            }
+
+            if (cleared > 0)
+            {
+                await _dbContext.SaveChangesAsync();
+            }
+
+            _logger.LogInformation("[MediaController] Cleared {Cleared}/{Total} ghost PendingSymlink items", cleared, pendingItems.Count);
+
+            return Ok(new { cleared, total = pendingItems.Count });
         }
 
         [HttpPost]
