@@ -255,6 +255,15 @@ namespace Storarr.Services
                             .Where(f => f.IsSymlink || f.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
                             .ToList();
 
+                        // Only match .strm files for the same episode (not other episodes in the same directory)
+                        if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                        {
+                            var epPattern = $"S{item.SeasonNumber.Value:D2}E{item.EpisodeNumber.Value:D2}";
+                            strmFiles = strmFiles
+                                .Where(f => System.IO.Path.GetFileName(f.Path).Contains(epPattern, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+
                         if (strmFiles.Count > 0)
                         {
                             _logger.LogInformation("[TransitionService] Source file gone but .strm exists for {Title}, updating state directly", item.Title);
