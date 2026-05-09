@@ -328,6 +328,7 @@ namespace Storarr.Controllers
                         try
                         {
                             var fileDeleted = false;
+                            var arrFilePath = RemapToArrPath(item.FilePath);
                             if (isSonarr)
                             {
                                 if (item.SonarrId.HasValue)
@@ -339,7 +340,8 @@ namespace Storarr.Controllers
                                     }
                                     else
                                     {
-                                        fileDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath);
+                                        fileDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath)
+                                            || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
                                     }
                                 }
                                 else
@@ -358,7 +360,19 @@ namespace Storarr.Controllers
                                     }
                                     else
                                     {
-                                        fileDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath);
+                                        // Try path-based deletion first, then query Radarr for the actual file ID
+                                        fileDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath)
+                                            || await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, arrFilePath);
+
+                                        if (!fileDeleted)
+                                        {
+                                            var movie = await _radarrService.GetMovie(item.RadarrId.Value);
+                                            if (movie != null && movie.MovieFileId.GetValueOrDefault() > 0)
+                                            {
+                                                await _radarrService.DeleteMovieFile(movie.MovieFileId!.Value);
+                                                fileDeleted = true;
+                                            }
+                                        }
                                     }
                                 }
                                 else
@@ -651,6 +665,22 @@ namespace Storarr.Controllers
                 FileState.PendingSymlink => "AwaitingSymlink",
                 _ => null
             };
+        }
+
+        private static string RemapToArrPath(string path)
+        {
+            string[][] mappings = {
+                new[] { "/media/", "/data/media/" },
+                new[] { "/tv/", "/data/tv/" },
+                new[] { "/movies/", "/data/movies/" },
+            };
+
+            foreach (var mapping in mappings)
+            {
+                if (path.StartsWith(mapping[0], StringComparison.OrdinalIgnoreCase))
+                    return mapping[1] + path.Substring(mapping[0].Length);
+            }
+            return path;
         }
     }
 }
