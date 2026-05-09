@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2, ArrowUpDown } from 'lucide-react'
-import { getCatalog, getSeriesEpisodes, ensureTracked, forceDownload, forceSymlink } from '../api/client'
+import { ChevronDown, ChevronRight, Loader2, ArrowUpDown, Trash2 } from 'lucide-react'
+import { getCatalog, getSeriesEpisodes, ensureTracked, forceDownload, forceSymlink, clearGhostPending } from '../api/client'
 import type { CatalogEpisodeDto, CatalogGroupDto } from '../stores/appStore'
 import BulkActionBar from './BulkActionBar'
 import ConfirmationDialog from './ConfirmationDialog'
+import ManageModal from './ManageModal'
 
 interface CatalogViewProps {
   filters: {
@@ -14,8 +15,8 @@ interface CatalogViewProps {
 }
 
 function getEpisodeKey(ep: CatalogEpisodeDto, group: CatalogGroupDto): string {
-  if (group.type === 'Movie') return `${group.radarrId ?? 'movie'}`
-  return `${group.sonarrId}-${ep.seasonNumber ?? 0}-${ep.episodeNumber ?? 0}`
+  if (group.type === 'Movie') return `${group.radarrId ?? 'movie'}-${ep.mediaItemId ?? ep.filePath ?? Math.random()}`
+  return `${group.sonarrId}-${ep.seasonNumber ?? 0}-${ep.episodeNumber ?? 0}${ep.mediaItemId ? `-${ep.mediaItemId}` : ''}`
 }
 
 function getStateColor(state: string): string {
@@ -51,6 +52,9 @@ export default function CatalogView({ filters }: CatalogViewProps) {
   const [batchProgress, setBatchProgress] = useState<{ completed: number; failed: number; total: number; running: boolean } | null>(null)
   const [sortBy, setSortBy] = useState<'title-asc' | 'title-desc' | 'size-desc' | 'size-asc'>('title-asc')
   const [batchResult, setBatchResult] = useState<{ completed: number; failed: number; total: number } | null>(null)
+  const [ghostClearResult, setGhostClearResult] = useState<{ cleared: number; total: number } | null>(null)
+  const [ghostClearing, setGhostClearing] = useState(false)
+  const [manageModalOpen, setManageModalOpen] = useState(false)
 
   const batchResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -85,35 +89,35 @@ export default function CatalogView({ filters }: CatalogViewProps) {
     }
   }, [batchResult, batchProgress?.running])
 
-  // Expand/collapse series group
-  const toggleGroup = useCallback(async (sonarrId: number) => {
+  // Expand/collapse series group or multi-file movie
+  const toggleGroup = useCallback(async (id: number) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev)
-      if (next.has(sonarrId)) {
-        next.delete(sonarrId)
+      if (next.has(id)) {
+        next.delete(id)
         return next
       }
-      next.add(sonarrId)
+      next.add(id)
       return next
     })
 
-    // If expanding and episodes are empty, load them
-    const group = catalog.find((g) => g.sonarrId === sonarrId)
-    if (group && group.episodes.length === 0 && !expandedGroups.has(sonarrId)) {
-      setLoadingEpisodes((prev) => new Set(prev).add(sonarrId))
+    // If expanding a series and episodes are empty, load them
+    const group = catalog.find((g) => g.sonarrId === id)
+    if (group && group.episodes.length === 0 && !expandedGroups.has(id)) {
+      setLoadingEpisodes((prev) => new Set(prev).add(id))
       try {
-        const response = await getSeriesEpisodes(sonarrId)
+        const response = await getSeriesEpisodes(id)
         setCatalog((prev) =>
           prev.map((g) =>
-            g.sonarrId === sonarrId ? { ...g, episodes: response.data } : g
+            g.sonarrId === id ? { ...g, episodes: response.data } : g
           )
         )
       } catch (error) {
-        console.error(`Failed to load episodes for sonarrId=${sonarrId}:`, error)
+        console.error(`Failed to load episodes for sonarrId=${id}:`, error)
       } finally {
         setLoadingEpisodes((prev) => {
           const next = new Set(prev)
-          next.delete(sonarrId)
+          next.delete(id)
           return next
         })
       }
@@ -267,11 +271,30 @@ export default function CatalogView({ filters }: CatalogViewProps) {
     setConfirmDialog({ action: 'toSymlink', items: selectedEpisodesList })
   }, [selectedEpisodesList])
 
+  const handleManage = () => {
+    setManageModalOpen(true)
+  }
+
   const handleConfirm = useCallback(() => {
     if (confirmDialog) {
       executeBatch(confirmDialog.items, confirmDialog.action)
     }
   }, [confirmDialog, executeBatch])
+
+  const handleClearGhostPending = useCallback(async () => {
+    setGhostClearing(true)
+    try {
+      const resp = await clearGhostPending()
+      setGhostClearResult(resp.data)
+      loadCatalog()
+    } catch (e) {
+      console.error('Failed to clear ghost pending:', e)
+      setGhostClearResult({ cleared: -1, total: 0 })
+    } finally {
+      setGhostClearing(false)
+      setTimeout(() => setGhostClearResult(null), 5000)
+    }
+  }, [loadCatalog])
 
   // Filter catalog based on stateFilter
   const filteredCatalog = useMemo(() => {
@@ -386,6 +409,25 @@ export default function CatalogView({ filters }: CatalogViewProps) {
           <option value="size-asc">Size (smallest first)</option>
         </select>
         <span className="text-sm text-arr-muted">{filteredCatalog.length} items</span>
+        <div className="ml-auto">
+          <button
+            onClick={handleClearGhostPending}
+            disabled={ghostClearing}
+            className="text-arr-muted hover:text-arr-danger disabled:opacity-50 px-3 py-1 rounded flex items-center gap-1.5 transition-colors text-sm border border-arr-primary hover:border-arr-danger"
+            title="Clear items stuck in PendingSymlink where the file no longer exists"
+          >
+            {ghostClearing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Clear Ghost Pending
+          </button>
+          {ghostClearResult && ghostClearResult.cleared >= 0 && (
+            <span className="ml-2 text-xs text-arr-success">
+              Cleared {ghostClearResult.cleared}/{ghostClearResult.total}
+            </span>
+          )}
+          {ghostClearResult && ghostClearResult.cleared < 0 && (
+            <span className="ml-2 text-xs text-arr-danger">Failed</span>
+          )}
+        </div>
       </div>
 
       {/* Catalog table */}
@@ -406,8 +448,10 @@ export default function CatalogView({ filters }: CatalogViewProps) {
             <tbody>
               {filteredCatalog.map((group) => {
                 const isSeries = group.type === 'Series' || group.type === 'Anime'
-                const isExpanded = isSeries && expandedGroups.has(group.sonarrId ?? 0)
-                const isLoadingEps = loadingEpisodes.has(group.sonarrId ?? 0)
+                const hasMultipleFiles = !isSeries && group.episodes.length > 1
+                const expandableKey = isSeries ? (group.sonarrId ?? 0) : (group.radarrId ?? 0)
+                const isExpanded = expandedGroups.has(expandableKey)
+                const isLoadingEps = loadingEpisodes.has(expandableKey)
                 const selState = getGroupSelectionState(group)
 
                 return (
@@ -415,6 +459,7 @@ export default function CatalogView({ filters }: CatalogViewProps) {
                     key={group.sonarrId ?? group.radarrId ?? group.title}
                     group={group}
                     isSeries={isSeries}
+                    hasMultipleFiles={hasMultipleFiles}
                     isExpanded={isExpanded}
                     isLoading={isLoadingEps}
                     selectionState={selState}
@@ -437,6 +482,8 @@ export default function CatalogView({ filters }: CatalogViewProps) {
         hasEligibleForSymlink={hasEligibleForSymlink}
         onConvertToMkv={handleConvertToMkv}
         onConvertToSymlink={handleConvertToSymlink}
+        onManage={handleManage}
+        onDeselectAll={() => setSelectedEpisodes(new Map())}
       />
 
       {/* Confirmation Dialog */}
@@ -448,6 +495,18 @@ export default function CatalogView({ filters }: CatalogViewProps) {
         onConfirm={handleConfirm}
         onCancel={() => setConfirmDialog(null)}
       />
+
+      {/* Manage Modal */}
+      <ManageModal
+        open={manageModalOpen}
+        selectedItems={selectedEpisodes}
+        onCancel={() => setManageModalOpen(false)}
+        onComplete={() => {
+          setManageModalOpen(false)
+          setSelectedEpisodes(new Map())
+          loadCatalog()
+        }}
+      />
     </div>
   )
 }
@@ -457,6 +516,7 @@ export default function CatalogView({ filters }: CatalogViewProps) {
 interface CatalogGroupRowProps {
   group: CatalogGroupDto
   isSeries: boolean
+  hasMultipleFiles: boolean
   isExpanded: boolean
   isLoading: boolean
   selectionState: 'none' | 'some' | 'all'
@@ -469,6 +529,7 @@ interface CatalogGroupRowProps {
 function CatalogGroupRow({
   group,
   isSeries,
+  hasMultipleFiles,
   isExpanded,
   isLoading,
   selectionState,
@@ -510,9 +571,9 @@ function CatalogGroupRow({
         </td>
         {/* Expand chevron */}
         <td className="w-10 px-2 py-3 text-center">
-          {isSeries && (
+          {(isSeries || hasMultipleFiles) && (
             <button
-              onClick={() => onToggleGroup(group.sonarrId!)}
+              onClick={() => onToggleGroup(isSeries ? group.sonarrId! : group.radarrId!)}
               className="p-1 hover:bg-arr-primary rounded text-arr-muted transition-colors"
             >
               {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -541,8 +602,8 @@ function CatalogGroupRow({
         <td className="px-4 py-3 text-right text-arr-muted">{group.formattedSize}</td>
       </tr>
 
-      {/* Expanded episode rows */}
-      {isSeries &&
+      {/* Expanded episode/file rows */}
+      {(isSeries || hasMultipleFiles) &&
         isExpanded &&
         (isLoading ? (
           <tr className="border-b border-arr-primary/50">
@@ -555,6 +616,7 @@ function CatalogGroupRow({
           group.episodes.map((ep) => {
             const epKey = getEpisodeKey(ep, group)
             const isSelected = selectedEpisodes.has(epKey)
+            const fileName = ep.filePath ? ep.filePath.split('/').pop() : ep.title
             return (
               <tr
                 key={epKey}
@@ -572,11 +634,17 @@ function CatalogGroupRow({
                 </td>
                 <td className="w-10 px-2 py-2"></td>
                 <td className="px-4 py-2 pl-10">
-                  <span className="text-arr-muted mr-2">
-                    S{(ep.seasonNumber ?? 0).toString().padStart(2, '0')}E
-                    {(ep.episodeNumber ?? 0).toString().padStart(2, '0')}
-                  </span>
-                  <span className="truncate">{ep.title}</span>
+                  {isSeries ? (
+                    <>
+                      <span className="text-arr-muted mr-2">
+                        S{(ep.seasonNumber ?? 0).toString().padStart(2, '0')}E
+                        {(ep.episodeNumber ?? 0).toString().padStart(2, '0')}
+                      </span>
+                      <span className="truncate">{ep.title}</span>
+                    </>
+                  ) : (
+                    <span className="truncate text-sm" title={ep.filePath}>{fileName}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   <span
