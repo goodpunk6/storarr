@@ -293,6 +293,29 @@ namespace Storarr.Services
             }
         }
 
+        public async Task DeleteMovie(int movieId, bool deleteFiles = false)
+        {
+            var request = await CreateRequest(HttpMethod.Delete, $"api/v3/movie/{movieId}?deleteFiles={deleteFiles.ToString().ToLowerInvariant()}");
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+
+        public async Task SetMovieMonitorState(int movieId, bool monitored)
+        {
+            var getRequest = await CreateRequest(HttpMethod.Get, $"api/v3/movie/{movieId}");
+            var getResponse = await _httpClient.SendAsync(getRequest);
+            getResponse.EnsureSuccessStatusCode();
+            var content = await getResponse.Content.ReadAsStringAsync();
+            var movie = JsonSerializer.Deserialize<Movie>(content, _jsonOptions);
+            if (movie == null) throw new InvalidOperationException($"Failed to deserialize movie {movieId}");
+
+            movie.Monitored = monitored;
+            var putRequest = await CreateRequest(HttpMethod.Put, $"api/v3/movie/{movieId}");
+            putRequest.Content = new StringContent(JsonSerializer.Serialize(movie, _jsonOptions), Encoding.UTF8, "application/json");
+            var putResponse = await _httpClient.SendAsync(putRequest);
+            putResponse.EnsureSuccessStatusCode();
+        }
+
         public async Task<List<RadarrQueueItem>> GetQueue()
         {
             try
@@ -319,6 +342,126 @@ namespace Storarr.Services
             {
                 _logger.LogError(ex, "Failed to get Radarr queue");
                 return new List<RadarrQueueItem>();
+            }
+        }
+
+        public async Task<IEnumerable<ReleaseResult>> SearchReleases(int movieId)
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, $"api/v3/release?movieId={movieId}");
+                var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Radarr release search for movie {MovieId} returned {StatusCode}", movieId, response.StatusCode);
+                    return Enumerable.Empty<ReleaseResult>();
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<RadarrReleaseResponse>>(content, _jsonOptions);
+
+                return data?.Select(r => new ReleaseResult
+                {
+                    Guid = r.Guid ?? string.Empty,
+                    Title = r.Title ?? string.Empty,
+                    Size = r.Size,
+                    IndexerId = r.IndexerId,
+                    DownloadAllowed = r.DownloadAllowed,
+                    Protocol = r.Protocol,
+                    QualityWeight = r.QualityWeight,
+                    CustomFormatScore = r.CustomFormatScore,
+                    Seeders = r.Seeders
+                }) ?? Enumerable.Empty<ReleaseResult>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to search releases for movie {MovieId}", movieId);
+                return Enumerable.Empty<ReleaseResult>();
+            }
+        }
+
+        public async Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? movieId = null)
+        {
+            try
+            {
+                var body = new Dictionary<string, object>
+                {
+                    ["guid"] = guid,
+                    ["indexerId"] = indexerId
+                };
+                if (downloadClientId.HasValue)
+                {
+                    body["downloadClientId"] = downloadClientId.Value;
+                }
+                if (movieId.HasValue)
+                {
+                    body["movieId"] = movieId.Value;
+                }
+
+                var json = JsonSerializer.Serialize(body);
+                var request = await CreateRequest(HttpMethod.Post, "api/v3/release");
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    return new GrabResult { Success = true };
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to grab release: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return new GrabResult { Success = false, ErrorMessage = errorContent };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to grab release {Guid}", guid);
+                return new GrabResult { Success = false, ErrorMessage = ex.Message };
+            }
+        }
+
+        public async Task<IEnumerable<DownloadClientInfo>> GetDownloadClients()
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, "api/v3/downloadclient");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<RadarrDownloadClientResponse>>(content, _jsonOptions);
+
+                return data?.Select(d => new DownloadClientInfo
+                {
+                    Id = d.Id,
+                    Name = d.Name ?? string.Empty,
+                    Implementation = d.Implementation ?? string.Empty,
+                    Enable = d.Enable
+                }) ?? Enumerable.Empty<DownloadClientInfo>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get download clients from Radarr");
+                return Enumerable.Empty<DownloadClientInfo>();
+            }
+        }
+
+        public async Task<HashSet<string>> GetBlocklistedTitles()
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, "api/v3/blocklist?page=1&pageSize=100");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<RadarrBlocklistResponse>(content, _jsonOptions);
+
+                return data?.Records?.Select(r => r.SourceTitle).ToHashSet() ?? new HashSet<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get blocklist from Radarr");
+                return new HashSet<string>();
             }
         }
     }
@@ -368,5 +511,36 @@ namespace Storarr.Services
         public long Size { get; set; }
         public long SizeLeft { get; set; }
         public string? ErrorMessage { get; set; }
+    }
+
+    internal class RadarrReleaseResponse
+    {
+        public string? Guid { get; set; }
+        public string? Title { get; set; }
+        public long Size { get; set; }
+        public int IndexerId { get; set; }
+        public bool DownloadAllowed { get; set; }
+        public string? Protocol { get; set; }
+        public int QualityWeight { get; set; }
+        public int CustomFormatScore { get; set; }
+        public int? Seeders { get; set; }
+    }
+
+    internal class RadarrDownloadClientResponse
+    {
+        public int Id { get; set; }
+        public string? Name { get; set; }
+        public string? Implementation { get; set; }
+        public bool Enable { get; set; }
+    }
+
+    internal class RadarrBlocklistResponse
+    {
+        public List<RadarrBlocklistItem>? Records { get; set; }
+    }
+
+    internal class RadarrBlocklistItem
+    {
+        public string SourceTitle { get; set; } = string.Empty;
     }
 }

@@ -15,6 +15,12 @@ namespace Storarr.Services
         Task<bool> DeleteMovieFileByPath(int movieId, string filePath);
         Task<List<RadarrQueueItem>> GetQueue();
         Task TestConnection();
+        Task<IEnumerable<ReleaseResult>> SearchReleases(int movieId);
+        Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? movieId = null);
+        Task<IEnumerable<DownloadClientInfo>> GetDownloadClients();
+        Task<HashSet<string>> GetBlocklistedTitles();
+        Task DeleteMovie(int movieId, bool deleteFiles = false);
+        Task SetMovieMonitorState(int movieId, bool monitored);
     }
 
     public class Movie
@@ -26,6 +32,7 @@ namespace Storarr.Services
         public int QualityProfileId { get; set; }
         public int? MovieFileId { get; set; }
         public List<SonarrImage>? Images { get; set; }
+        public bool Monitored { get; set; }
     }
 
     public class MovieFile
