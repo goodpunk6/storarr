@@ -1,6 +1,19 @@
 import axios from 'axios'
 import type { CatalogGroupDto, CatalogEpisodeDto, EnsureTrackedRequestDto, EnsureTrackedResponseDto } from '../stores/appStore'
 
+export interface ManageMediaResult {
+  results: ManageMediaItemResult[]
+}
+
+export interface ManageMediaItemResult {
+  itemId: number
+  title: string
+  type: string
+  success: boolean
+  actions: string[]
+  errors: string[]
+}
+
 const api = axios.create({
   baseURL: '/api/v1',
   headers: {
@@ -39,10 +52,20 @@ export const forceSymlink = (id: number) => api.post(`/media/${id}/force-symlink
 export const toggleExcluded = (id: number) => api.post(`/media/${id}/toggle-excluded`)
 export const setExcluded = (id: number, isExcluded: boolean) => api.put(`/media/${id}/excluded`, { isExcluded })
 export const deleteMedia = (id: number) => api.delete(`/media/${id}`)
+export const clearGhostPending = () => api.post('/media/clear-ghost-pending')
+
+export const manageMedia = async (
+  itemIds: number[],
+  options: { deleteFiles: boolean; removeFromArr: boolean; unmonitor: boolean; reMonitor: boolean }
+) => {
+  const response = await api.post('/media/manage', { itemIds, ...options })
+  return response.data
+}
 
 // Config
 export const getConfig = () => api.get('/config')
 export const updateConfig = (data: any) => api.put('/config', data)
+export const getDownloadClients = () => api.get('/config/download-clients')
 export const testConnections = () => api.post('/config/test')
 export const completeFirstRun = (data: {
   libraryMode: string
