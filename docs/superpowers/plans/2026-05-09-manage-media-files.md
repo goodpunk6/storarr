@@ -80,7 +80,7 @@ public async Task SetSeriesMonitorState(int seriesId, bool monitored)
 
 - [ ] **Step 3: Build and verify**
 
-Run: `dotnet build /home/dobbie/storarr/Storarr.sln`
+Run: `dotnet build /path/to/storarr/Storarr.sln`
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 4: Commit**
@@ -144,7 +144,7 @@ public async Task SetMovieMonitorState(int movieId, bool monitored)
 
 - [ ] **Step 3: Build and verify**
 
-Run: `dotnet build /home/dobbie/storarr/Storarr.sln`
+Run: `dotnet build /path/to/storarr/Storarr.sln`
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 4: Commit**
@@ -199,7 +199,7 @@ namespace Storarr.DTOs
 
 - [ ] **Step 2: Build and verify**
 
-Run: `dotnet build /home/dobbie/storarr/Storarr.sln`
+Run: `dotnet build /path/to/storarr/Storarr.sln`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -457,7 +457,7 @@ public async Task<ActionResult<ManageMediaResultDto>> ManageMedia([FromBody] Man
 
 - [ ] **Step 3: Build and verify**
 
-Run: `dotnet build /home/dobbie/storarr/Storarr.sln`
+Run: `dotnet build /path/to/storarr/Storarr.sln`
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
@@ -507,7 +507,7 @@ export interface ManageMediaItemResult {
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npx tsc --noEmit`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npx tsc --noEmit`
 Expected: No type errors.
 
 - [ ] **Step 3: Commit**
@@ -561,7 +561,7 @@ import { Settings } from 'lucide-react'
 
 - [ ] **Step 3: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npx tsc --noEmit`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npx tsc --noEmit`
 Expected: No type errors.
 
 - [ ] **Step 4: Commit**
@@ -781,7 +781,7 @@ Note: The `CatalogEpisodeDto` and `CatalogGroupDto` types need to be exported fr
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npx tsc --noEmit`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npx tsc --noEmit`
 Expected: May have errors about unexported types — will fix in Task 8.
 
 - [ ] **Step 3: Commit**
@@ -870,7 +870,7 @@ Add the ManageModal component after the BulkActionBar, near the bottom of the Ca
 
 - [ ] **Step 6: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npx tsc --noEmit`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npx tsc --noEmit`
 Expected: No type errors.
 
 - [ ] **Step 7: Commit**
@@ -888,18 +888,18 @@ git commit -m "feat: wire ManageModal into CatalogView with selection integratio
 
 - [ ] **Step 1: Full backend build**
 
-Run: `dotnet build /home/dobbie/storarr/Storarr.sln`
+Run: `dotnet build /path/to/storarr/Storarr.sln`
 Expected: Build succeeds.
 
 - [ ] **Step 2: Full frontend build**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Deploy and rebuild Docker container**
 
 ```bash
-cd /home/dobbie/storarr
+cd /path/to/storarr
 docker compose build storarr
 docker compose up -d storarr
 ```

@@ -97,7 +97,7 @@ Returns the full library merged with Storarr tracked state.
         "currentState": "Mkv",
         "fileSize": 4500000000,
         "isExcluded": false,
-        "filePath": "/mnt/library/data/media/tv/Breaking Bad/Season 1/s01e01.mkv"
+        "filePath": "/path/to/media/tv/Breaking Bad/Season 1/s01e01.mkv"
       }
     ]
   }
@@ -130,7 +130,7 @@ For movies (DTO: `CatalogGroupDto` — same type, no episodes to expand):
         "currentState": "Mkv",
         "fileSize": 45000000000,
         "isExcluded": false,
-        "filePath": "/mnt/library/data/media/movies/Inception (2010)/Inception.mkv"
+        "filePath": "/path/to/media/movies/Inception (2010)/Inception.mkv"
       }
     ]
   }
@@ -194,7 +194,7 @@ Creates a `MediaItem` for a Sonarr/Radarr item if one doesn't exist, then return
   "seasonNumber": 1,
   "episodeNumber": 1,
   "tmdbId": 1396,
-  "filePath": "/mnt/library/data/media/tv/Breaking Bad/Season 1/s01e01.strm"
+  "filePath": "/path/to/media/tv/Breaking Bad/Season 1/s01e01.strm"
 }
 ```
 

@@ -63,7 +63,7 @@ private async Task<bool> CheckUsenetAvailable(MediaItem item)
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `cd /home/dobbie/storarr/src && dotnet build`
+Run: `cd /path/to/storarr/src && dotnet build`
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 3: Commit**
@@ -241,7 +241,7 @@ The full restructured `TransitionToSymlink` method body should be:
 
 - [ ] **Step 3: Verify it compiles**
 
-Run: `cd /home/dobbie/storarr/src && dotnet build`
+Run: `cd /path/to/storarr/src && dotnet build`
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 4: Commit**
@@ -259,12 +259,12 @@ git commit -m "feat: replace Jellyseerr fallback with Arr search trigger in Tran
 
 - [ ] **Step 1: Build Docker image**
 
-Run: `cd /home/dobbie/storarr && docker compose build storarr`
+Run: `cd /path/to/storarr && docker compose build storarr`
 Expected: Build succeeds.
 
 - [ ] **Step 2: Deploy updated container**
 
-Run: `cd /home/dobbie/storarr && docker compose up -d storarr`
+Run: `cd /path/to/storarr && docker compose up -d storarr`
 Expected: Container starts without errors.
 
 - [ ] **Step 3: Verify Storarr is healthy**

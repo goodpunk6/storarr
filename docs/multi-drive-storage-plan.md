@@ -75,8 +75,8 @@ public string JellyfinLibraryPath { get; set; } = "/media";  // Unified view for
 #### Option A: Jellyfin Library Symlinks (Recommended)
 ```
 JellyfinLibraryPath (/media - unified view via symlinks)
-├── TV/ -> /mnt/nvme/media/TV/ (symlinks stored here)
-└── Movies/ -> /mnt/hdd-array/media/Movies/ (MKVs stored here)
+├── TV/ -> /path/to/media/TV/ (symlinks stored here)
+└── Movies/ -> /path/to/media/Movies/ (MKVs stored here)
 ```
 
 **How it works:**
@@ -96,12 +96,12 @@ JellyfinLibraryPath (/media - unified view via symlinks)
 #### Option B: Arr Root Folder Coordination
 ```
 Sonarr Root Folders:
-- /mnt/nvme/media/TV (for symlinks)
-- /mnt/hdd-array/media/TV (for MKVs)
+- /path/to/media/TV (for symlinks)
+- /path/to/media/TV (for MKVs)
 
 Radarr Root Folders:
-- /mnt/nvme/media/Movies (for symlinks)
-- /mnt/hdd-array/media/Movies (for MKVs)
+- /path/to/media/Movies (for symlinks)
+- /path/to/media/Movies (for MKVs)
 ```
 
 **How it works:**
@@ -121,14 +121,14 @@ Radarr Root Folders:
 #### Option C: Hybrid Approach (Best)
 ```
 Physical Layout:
-/mnt/nvme/media/          (Symlink tier - fast storage)
+/path/to/media/          (Symlink tier - fast storage)
 ├── TV/
 │   └── Show Name/
 │       └── S01E01.strm
 └── Movies/
     └── Movie.strm
 
-/mnt/hdd-array/media/     (Mkv tier - bulk storage)
+/path/to/media/     (Mkv tier - bulk storage)
 ├── TV/
 │   └── Show Name/
 │       └── S01E01.mkv
@@ -172,8 +172,8 @@ Jellyfin View (via union mount or Storarr-managed symlinks):
 **Critical**: Sonarr/Radarr need to download to the correct path.
 
 **Solution**: Configure multiple root folders in Sonarr/Radarr:
-- `/mnt/nvme/media/TV` - for symlink-tier content
-- `/mnt/hdd-array/media/TV` - for mkv-tier content
+- `/path/to/media/TV` - for symlink-tier content
+- `/path/to/media/TV` - for mkv-tier content
 
 When transitioning:
 1. Update series/movie in Sonarr/Radarr to use different root folder

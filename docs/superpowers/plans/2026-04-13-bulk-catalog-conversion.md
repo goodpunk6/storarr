@@ -88,7 +88,7 @@ Add `TmdbId` and `Images` to the mapping.
 
 - [ ] **Step 5: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr && dotnet build`
+Run: `cd /path/to/storarr/src/Storarr && dotnet build`
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 6: Commit**
@@ -138,7 +138,7 @@ Add `Images` to the mapping.
 
 - [ ] **Step 5: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr && dotnet build`
+Run: `cd /path/to/storarr/src/Storarr && dotnet build`
 Expected: Build succeeds.
 
 - [ ] **Step 6: Commit**
@@ -215,7 +215,7 @@ namespace Storarr.DTOs
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr && dotnet build`
+Run: `cd /path/to/storarr/src/Storarr && dotnet build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -424,7 +424,7 @@ Note on poster URL typing: `SonarrImage` and `RadarrImage` have identical fields
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr && dotnet build`
+Run: `cd /path/to/storarr/src/Storarr && dotnet build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -574,7 +574,7 @@ public async Task<ActionResult<EnsureTrackedResponseDto>> EnsureTracked(
 
 - [ ] **Step 3: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr && dotnet build`
+Run: `cd /path/to/storarr/src/Storarr && dotnet build`
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
@@ -666,7 +666,7 @@ import type { CatalogGroupDto, EnsureTrackedRequestDto, EnsureTrackedResponseDto
 
 - [ ] **Step 3: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
@@ -705,7 +705,7 @@ Use existing Tailwind classes and Lucide icons matching the project style.
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -742,7 +742,7 @@ Behavior:
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -827,7 +827,7 @@ async function executeBatch(items, action) {
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -872,7 +872,7 @@ Import `CatalogView` at the top.
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cd /home/dobbie/storarr/src/Storarr.Frontend && npm run build`
+Run: `cd /path/to/storarr/src/Storarr.Frontend && npm run build`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -891,12 +891,12 @@ git commit -m "feat: add flat/grouped toggle to Media page with CatalogView inte
 
 - [ ] **Step 1: Build the Docker image**
 
-Run: `cd /home/dobbie/storarr && docker compose build`
+Run: `cd /path/to/storarr && docker compose build`
 Expected: Build succeeds (multi-stage: node frontend + .NET backend).
 
 - [ ] **Step 2: Start the container**
 
-Run: `cd /home/dobbie/storarr && docker compose up -d`
+Run: `cd /path/to/storarr && docker compose up -d`
 
 - [ ] **Step 3: Verify the catalog API**
 
@@ -917,7 +917,7 @@ If any issues were found, fix and commit.
 
 - [ ] **Step 1: Ensure clean working tree**
 
-Run: `cd /home/dobbie/storarr && git status`
+Run: `cd /path/to/storarr && git status`
 Expected: Clean working tree or only untracked files.
 
 - [ ] **Step 2: Tag the release**
