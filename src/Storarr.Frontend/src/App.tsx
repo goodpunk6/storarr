@@ -58,6 +58,14 @@ function mapApiConfigToStore(apiConfig: any): Config {
       url: apiConfig.downloadClient3Url,
       apiKey: apiConfig.downloadClient3ApiKey,
     },
+    // STRM Refresh Schedule
+    strmRefreshEnabled: apiConfig.strmRefreshEnabled ?? true,
+    strmRefreshHour: apiConfig.strmRefreshHour ?? 4,
+    strmRefreshMinute: apiConfig.strmRefreshMinute ?? 0,
+    strmRefreshDayOfWeek: apiConfig.strmRefreshDayOfWeek ?? 'Monday',
+    strmRefreshInterval: apiConfig.strmRefreshInterval ?? 'Weekly',
+    strmRefreshLastRun: apiConfig.strmRefreshLastRun,
+    strmRefreshNextRun: apiConfig.strmRefreshNextRun,
   }
 }
 

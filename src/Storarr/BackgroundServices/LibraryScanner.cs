@@ -247,7 +247,18 @@ namespace Storarr.BackgroundServices
 
                 var expectedState = file.IsSymlink ? FileState.Symlink : FileState.Mkv;
 
-                if (item.CurrentState != expectedState &&
+                // PendingSymlink resolution: if a symlink/strm appeared, upgrade to Symlink
+                if (item.CurrentState == FileState.PendingSymlink && file.IsSymlink)
+                {
+                    _logger.LogInformation("[LibraryScanner] PendingSymlink resolved for {Title}: symlink/strm file found at {Path}",
+                        item.Title, file.Path);
+                    item.CurrentState = FileState.Symlink;
+                    item.StateChangedAt = DateTime.UtcNow;
+                    item.FilePath = file.Path;
+                    item.FileSize = file.Size;
+                    item.PendingSymlinkAt = null;
+                }
+                else if (item.CurrentState != expectedState &&
                     item.CurrentState != FileState.Downloading &&
                     item.CurrentState != FileState.PendingSymlink)
                 {
@@ -287,11 +298,10 @@ namespace Storarr.BackgroundServices
                 if (!existingItemsByPath.TryGetValue(path, out var item))
                     continue;
 
-                // If file is gone and we were downloading, mark as pending symlink
+                // Skip items actively downloading — the file was intentionally deleted during transition
                 if (item.CurrentState == FileState.Downloading)
-                {
-                    item.CurrentState = FileState.PendingSymlink;
-                }
+                    continue;
+
                 _logger.LogWarning("[LibraryScanner] Media file no longer exists: {Path}", path);
             }
 

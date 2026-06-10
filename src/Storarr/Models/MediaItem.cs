@@ -50,5 +50,8 @@ namespace Storarr.Models
 
         // Exclude from automatic transitions
         public bool IsExcluded { get; set; } = false;
+
+        // Timestamp when item entered PendingSymlink state (for stale detection)
+        public DateTime? PendingSymlinkAt { get; set; }
     }
 }

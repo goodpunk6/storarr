@@ -82,7 +82,7 @@ namespace Storarr.Services
                     TvdbId = r.Media?.TvdbId,
                     Type = MapMediaType(r.Media?.MediaType),
                     Title = r.Media?.Title ?? string.Empty,
-                    Status = r.Status,
+                    Status = r.StatusString,
                     CreatedAt = r.CreatedAt
                 }) ?? Enumerable.Empty<MediaRequest>();
             }
@@ -115,7 +115,7 @@ namespace Storarr.Services
                     TvdbId = r.Media?.TvdbId,
                     Type = MapMediaType(r.Media?.MediaType),
                     Title = r.Media?.Title ?? string.Empty,
-                    Status = r.Status,
+                    Status = r.StatusString,
                     CreatedAt = r.CreatedAt
                 };
             }
@@ -167,7 +167,7 @@ namespace Storarr.Services
                     TmdbId = tmdbId,
                     TvdbId = tvdbId,
                     Type = type,
-                    Status = r?.Status ?? "PENDING",
+                    Status = r?.StatusString ?? "PENDING",
                     CreatedAt = r?.CreatedAt ?? DateTime.UtcNow
                 };
             }
@@ -201,8 +201,15 @@ namespace Storarr.Services
         public int Id { get; set; }
         public int MediaId { get; set; }
         public JellyseerrMedia? Media { get; set; }
-        public string Status { get; set; } = string.Empty;
+        public JsonElement Status { get; set; }
         public DateTime CreatedAt { get; set; }
+
+        public string StatusString => Status.ValueKind switch
+        {
+            JsonValueKind.Number => Status.GetInt32() switch { 1 => "PENDING", 2 => "APPROVED", 3 => "AVAILABLE", _ => $"UNKNOWN_{Status.GetInt32()}" },
+            JsonValueKind.String => Status.GetString() ?? "UNKNOWN",
+            _ => "UNKNOWN"
+        };
     }
 
     internal class JellyseerrMedia

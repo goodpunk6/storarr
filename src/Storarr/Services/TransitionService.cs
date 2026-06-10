@@ -44,149 +44,146 @@ namespace Storarr.Services
             _logger.LogInformation("[TransitionService] Transitioning {Title} from symlink to MKV", item.Title);
             try
             {
-                // STEP 1: Search releases and grab via the matching download client
+                // Search releases manually and grab via the non-NZBdav download client
+                // This bypasses quality profile cutoffs (ignores DownloadAllowed flag)
                 bool grabTriggered = false;
 
                 try
                 {
-                    // Fetch download clients and build protocol→clientId map (exclude NZBdav — it delivers .strm, not MKV)
+                    var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                     var clients = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
                         ? await _sonarrService.GetDownloadClients()
                         : await _radarrService.GetDownloadClients();
 
-                    var protocolToClientId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var c in clients.Where(c => c.Enable && !c.Name.Equals("NZBdav", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        var protocol = c.Implementation.Equals("Sabnzbd", StringComparison.OrdinalIgnoreCase)
-                            ? "usenet" : "torrent";
-                        protocolToClientId.TryAdd(protocol, c.Id);
-                    }
+                    // Use the configured MKV download client, or fall back to first non-NZBdav client
+                    int? targetClientId = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                        ? config?.SonarrMkvDownloadClientId
+                        : config?.RadarrMkvDownloadClientId;
 
-                    // Search for available releases
-                    IEnumerable<ReleaseResult> releases;
-                    if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                    DownloadClientInfo? targetClient = targetClientId.HasValue
+                        ? clients.FirstOrDefault(c => c.Id == targetClientId.Value)
+                        : null;
+                    targetClient ??= clients.FirstOrDefault(c =>
+                        c.Enable && !c.Name.Equals("NZBdav", StringComparison.OrdinalIgnoreCase));
+
+                    if (targetClient != null)
                     {
-                        if (!item.SeasonNumber.HasValue || !item.EpisodeNumber.HasValue)
+                        // Search releases scoped to this specific episode/movie
+                        IEnumerable<ReleaseResult> releases;
+                        if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                         {
-                            _logger.LogWarning("[TransitionService] Cannot search: missing season/episode for {Title}", item.Title);
-                            releases = Enumerable.Empty<ReleaseResult>();
+                            if (!item.SeasonNumber.HasValue || !item.EpisodeNumber.HasValue)
+                            {
+                                _logger.LogWarning("[TransitionService] Cannot search: missing season/episode for {Title}", item.Title);
+                                releases = Enumerable.Empty<ReleaseResult>();
+                            }
+                            else
+                            {
+                                var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                                releases = episodeId.HasValue
+                                    ? await _sonarrService.SearchReleases(item.SonarrId.Value, new[] { episodeId.Value })
+                                    : Enumerable.Empty<ReleaseResult>();
+                            }
+                        }
+                        else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                        {
+                            releases = await _radarrService.SearchReleases(item.RadarrId.Value);
                         }
                         else
                         {
-                            var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                            releases = episodeId.HasValue
-                                ? await _sonarrService.SearchReleases(item.SonarrId.Value, new[] { episodeId.Value })
-                                : Enumerable.Empty<ReleaseResult>();
+                            releases = Enumerable.Empty<ReleaseResult>();
                         }
-                    }
-                    else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                    {
-                        releases = await _radarrService.SearchReleases(item.RadarrId.Value);
+
+                        // Detect protocol from the MKV download client (SABnzbd=usenet, QBittorrent=torrent)
+                        var mkvProtocol = targetClient.Implementation.Equals("Sabnzbd", StringComparison.OrdinalIgnoreCase)
+                            ? "usenet" : "torrent";
+
+                        // Filter: protocol matching the download client, not blocklisted, matches item title
+                        // DownloadAllowed ignored — bypasses quality profile cutoff
+                        var blocklist = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                            ? await _sonarrService.GetBlocklistedTitles()
+                            : await _radarrService.GetBlocklistedTitles();
+
+                        var normalizedItemTitle = NormalizeTitle(item.Title);
+                        var eligibleReleases = releases
+                            .Where(r => r.Protocol?.Equals(mkvProtocol, StringComparison.OrdinalIgnoreCase) == true)
+                            .Where(r => !blocklist.Contains(r.Title))
+                            .Where(r => ReleaseMatchesItem(r.Title, item, normalizedItemTitle))
+                            .OrderByDescending(r => r.CustomFormatScore)
+                            .ThenByDescending(r => r.QualityWeight)
+                            .ThenBy(r => r.Age)
+                            .ToList();
+
+                        _logger.LogInformation("[TransitionService] Found {Count} eligible {Protocol} releases for {Title} (MKV via {Client})", eligibleReleases.Count, mkvProtocol, item.Title, targetClient.Name);
+
+                        foreach (var release in eligibleReleases)
+                        {
+                            GrabResult result;
+                            if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                            {
+                                int[]? epIds = null;
+                                if (item.SonarrId.HasValue && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                                {
+                                    var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                                    if (epId.HasValue) epIds = new[] { epId.Value };
+                                }
+                                result = await _sonarrService.GrabRelease(release.Guid, release.IndexerId, targetClient.Id, item.SonarrId, epIds);
+                            }
+                            else
+                            {
+                                result = await _radarrService.GrabRelease(release.Guid, release.IndexerId, targetClient.Id, item.RadarrId);
+                            }
+
+                            if (result.Success)
+                            {
+                                _logger.LogInformation("[TransitionService] Grabbed '{Title}' (CF:{CF}, QW:{QW}, Age:{Age}d) via {Client} for {ItemTitle}",
+                                    release.Title, release.CustomFormatScore, release.QualityWeight, release.Age, targetClient.Name, item.Title);
+                                grabTriggered = true;
+                                break;
+                            }
+
+                            _logger.LogWarning("[TransitionService] Grab failed for '{Title}': {Error}, trying next",
+                                release.Title, result.ErrorMessage);
+                        }
                     }
                     else
                     {
-                        releases = Enumerable.Empty<ReleaseResult>();
-                    }
-
-                    // Pick the best scoring release, ignoring downloadAllowed (cutoff blocks it)
-                    // Skip torrent releases with 0 seeders
-                    // Skip blocklisted releases (previously failed grabs)
-
-                    var blocklist = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
-                        ? await _sonarrService.GetBlocklistedTitles()
-                        : await _radarrService.GetBlocklistedTitles();
-
-                    var normalizedItemTitle = NormalizeTitle(item.Title);
-                    var eligibleReleases = releases
-                        .Where(r => !r.Protocol?.Equals("torrent", StringComparison.OrdinalIgnoreCase) == true
-                            || (r.Seeders.HasValue && r.Seeders.Value > 0))
-                        .Where(r => !blocklist.Contains(r.Title))
-                        .Where(r => r.CustomFormatScore >= 0)
-                        .Where(r => ReleaseMatchesTitle(r.Title, normalizedItemTitle))
-                        .OrderByDescending(r => r.QualityWeight)
-                        .ThenByDescending(r => r.CustomFormatScore)
-                        .ToList();
-
-                    _logger.LogInformation("[TransitionService] Found {Count} eligible releases for {Title}", eligibleReleases.Count, item.Title);
-
-                    // Try each release in order until one succeeds
-                    int attempt = 0;
-                    foreach (var release in eligibleReleases)
-                    {
-                        attempt++;
-                        if (string.IsNullOrEmpty(release.Protocol))
-                        {
-                            _logger.LogDebug("[TransitionService] Skipping attempt {Attempt}/{Total}: no protocol for '{Title}'",
-                                attempt, eligibleReleases.Count, release.Title);
-                            continue;
-                        }
-                        if (!protocolToClientId.TryGetValue(release.Protocol, out var clientId))
-                        {
-                            _logger.LogDebug("[TransitionService] Skipping attempt {Attempt}/{Total}: no client for protocol {Protocol} ('{Title}')",
-                                attempt, eligibleReleases.Count, release.Protocol, release.Title);
-                            continue;
-                        }
-
-                        _logger.LogInformation("[TransitionService] Grab attempt {Attempt}/{Total}: '{Title}' ({Protocol}, QW:{QW}, CF:{CF}) via client {ClientId}",
-                            attempt, eligibleReleases.Count, release.Title, release.Protocol, release.QualityWeight, release.CustomFormatScore, clientId);
-
-                        GrabResult result;
-                        if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
-                        {
-                            int[]? epIds = null;
-                            if (item.SonarrId.HasValue && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
-                            {
-                                var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                                if (epId.HasValue) epIds = new[] { epId.Value };
-                            }
-                            result = await _sonarrService.GrabRelease(release.Guid, release.IndexerId, clientId, item.SonarrId, epIds);
-                        }
-                        else
-                        {
-                            result = await _radarrService.GrabRelease(release.Guid, release.IndexerId, clientId, item.RadarrId);
-                        }
-
-                        if (result.Success)
-                        {
-                            _logger.LogInformation("[TransitionService] Successfully grabbed '{Title}' ({Protocol}) via client {ClientId} for {ItemTitle} on attempt {Attempt}",
-                                release.Title, release.Protocol, clientId, item.Title, attempt);
-                            grabTriggered = true;
-                            break;
-                        }
-
-                        _logger.LogWarning("[TransitionService] Grab attempt {Attempt} failed for '{Title}': {Error}",
-                            attempt, release.Title, result.ErrorMessage);
-                    }
-
-                    if (!grabTriggered && eligibleReleases.Count > 0)
-                    {
-                        _logger.LogWarning("[TransitionService] All {Count} grab attempts failed for {Title}", eligibleReleases.Count, item.Title);
-                    }
-                    else if (eligibleReleases.Count == 0)
-                    {
-                        _logger.LogWarning("[TransitionService] No eligible releases found for {Title}", item.Title);
+                        _logger.LogWarning("[TransitionService] No non-NZBdav download client found for {Title}", item.Title);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[TransitionService] Targeted grab failed for {Title}, will fall back", item.Title);
+                    _logger.LogWarning(ex, "[TransitionService] Manual grab failed for {Title}, will fall back", item.Title);
                 }
 
-                // Fallback to blind TriggerSearch only as last resort
+                // Fallback: let the arr handle it via TriggerSearch
                 if (!grabTriggered)
                 {
                     if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
                     {
-                        _logger.LogWarning("[TransitionService] Falling back to Radarr TriggerSearch for {Title} — client selection is uncontrolled",
-                            item.Title);
+                        _logger.LogWarning("[TransitionService] Falling back to Radarr TriggerSearch for {Title}", item.Title);
                         await _radarrService.TriggerSearch(item.RadarrId.Value);
                         grabTriggered = true;
                     }
                     else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                     {
-                        _logger.LogWarning("[TransitionService] Falling back to Sonarr TriggerSearch for {Title} — client selection is uncontrolled",
-                            item.Title);
-                        await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                        _logger.LogWarning("[TransitionService] Falling back to Sonarr TriggerSearch for {Title}", item.Title);
+                        if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                        {
+                            var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                            if (episodeId.HasValue)
+                            {
+                                await _sonarrService.TriggerSearch(item.SonarrId.Value, new[] { episodeId.Value });
+                            }
+                            else
+                            {
+                                await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                            }
+                        }
+                        else
+                        {
+                            await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                        }
                         grabTriggered = true;
                     }
                 }
@@ -196,9 +193,9 @@ namespace Storarr.Services
                     _logger.LogWarning("[TransitionService] No Arr service configured for {Title}, proceeding with deletion anyway", item.Title);
                 }
 
-                // STEP 2: Delete the file
+                // Delete the file
                 bool apiDeleted = false;
-                var arrFilePath = RemapToArrPath(item.FilePath);
+                var arrFilePath = await RemapToArrPath(item.FilePath, item);
 
                 if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
                 {
@@ -243,7 +240,7 @@ namespace Storarr.Services
 
             try
             {
-                // If the source file is already gone, check if a .strm/symlink already exists
+                // PHASE 0: If the source file is already gone, check if a .strm/symlink already exists
                 var sourceExists = await _fileService.FileExists(item.FilePath);
                 if (!sourceExists && !item.FilePath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
                 {
@@ -255,7 +252,6 @@ namespace Storarr.Services
                             .Where(f => f.IsSymlink || f.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
                             .ToList();
 
-                        // Only match .strm files for the same episode (not other episodes in the same directory)
                         if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
                         {
                             var epPattern = $"S{item.SeasonNumber.Value:D2}E{item.EpisodeNumber.Value:D2}";
@@ -281,52 +277,30 @@ namespace Storarr.Services
                     }
                 }
 
-                // Check if usenet releases exist (regardless of cutoff status)
-                var hasUsenet = await HasUsenetReleases(item);
-                if (!hasUsenet)
-                {
-                    _logger.LogInformation("[TransitionService] No usenet releases available for {Title}, skipping symlink transition", item.Title);
-                    return;
-                }
-
-                // Delete the file via Arr API and/or disk
-                bool apiDeleted = false;
-                var arrFilePath = RemapToArrPath(item.FilePath);
-
-                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Deleting movie file via Radarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
-                    apiDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath)
-                        || await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, arrFilePath);
-                }
-                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Deleting episode file via Sonarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
-                    apiDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath)
-                        || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
-                }
-
-                if (await _fileService.FileExists(item.FilePath))
-                {
-                    _logger.LogDebug("[TransitionService] Deleting file from disk: {Path}", item.FilePath);
-                    await _fileService.DeleteFile(item.FilePath);
-                }
-
-                // Trigger targeted grab via NZBdav (delivers .strm files)
-                // NZBdav is the download client that creates streaming pointer files
+                // PHASE 1: Pre-validate — search for eligible releases BEFORE deleting anything
                 bool grabTriggered = false;
+                DownloadClientInfo? nzbdavClient = null;
+                List<ReleaseResult> eligibleReleases = new List<ReleaseResult>();
+
                 try
                 {
+                    var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
                     var clients = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
                         ? await _sonarrService.GetDownloadClients()
                         : await _radarrService.GetDownloadClients();
 
-                    var nzbdavClient = clients.FirstOrDefault(c =>
+                    int? symlinkClientId = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                        ? config?.SonarrSymlinkDownloadClientId
+                        : config?.RadarrSymlinkDownloadClientId;
+
+                    nzbdavClient = symlinkClientId.HasValue
+                        ? clients.FirstOrDefault(c => c.Id == symlinkClientId.Value)
+                        : null;
+                    nzbdavClient ??= clients.FirstOrDefault(c =>
                         c.Enable && c.Name.Equals("NZBdav", StringComparison.OrdinalIgnoreCase));
 
                     if (nzbdavClient != null)
                     {
-                        // Search for usenet releases
                         IEnumerable<ReleaseResult> releases;
                         if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                         {
@@ -352,84 +326,121 @@ namespace Storarr.Services
                             releases = Enumerable.Empty<ReleaseResult>();
                         }
 
-                        // Filter to usenet only (NZBdav handles usenet) and skip blocklisted
                         var blocklist = (item.Type == MediaType.Series || item.Type == MediaType.Anime)
                             ? await _sonarrService.GetBlocklistedTitles()
                             : await _radarrService.GetBlocklistedTitles();
 
+                        // Detect protocol from the symlink download client
+                        // decypharr (QBittorrent) handles both torrents and usenet via Torbox - no protocol filter
+                        // NZBdav (SABnzbd) only handles usenet
+                        string? symlinkProtocol = nzbdavClient.Implementation.Equals("Sabnzbd", StringComparison.OrdinalIgnoreCase)
+                            ? "usenet" : null; // null = accept all protocols
+
                         var normalizedItemTitle = NormalizeTitle(item.Title);
-                        var usenetReleases = releases
-                            .Where(r => r.Protocol?.Equals("usenet", StringComparison.OrdinalIgnoreCase) == true)
+                        eligibleReleases = releases
+                            .Where(r => symlinkProtocol == null || r.Protocol?.Equals(symlinkProtocol, StringComparison.OrdinalIgnoreCase) == true)
                             .Where(r => !blocklist.Contains(r.Title))
-                            .Where(r => r.CustomFormatScore >= 0)
-                            .Where(r => ReleaseMatchesTitle(r.Title, normalizedItemTitle))
+                            .Where(r => ReleaseMatchesItem(r.Title, item, normalizedItemTitle))
                             .OrderByDescending(r => r.CustomFormatScore)
                             .ThenByDescending(r => r.QualityWeight)
+                            .ThenBy(r => r.Age)
                             .ToList();
 
-                        _logger.LogInformation("[TransitionService] Found {Count} usenet releases for symlink conversion of {Title}", usenetReleases.Count, item.Title);
-
-                        foreach (var release in usenetReleases)
-                        {
-                            GrabResult result;
-                            if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
-                            {
-                                int[]? epIds = null;
-                                if (item.SonarrId.HasValue && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
-                                {
-                                    var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                                    if (epId.HasValue) epIds = new[] { epId.Value };
-                                }
-                                result = await _sonarrService.GrabRelease(release.Guid, release.IndexerId, nzbdavClient.Id, item.SonarrId, epIds);
-                            }
-                            else
-                            {
-                                result = await _radarrService.GrabRelease(release.Guid, release.IndexerId, nzbdavClient.Id, item.RadarrId);
-                            }
-
-                            if (result.Success)
-                            {
-                                _logger.LogInformation("[TransitionService] Grabbed '{Title}' via NZBdav for symlink conversion of {ItemTitle}",
-                                    release.Title, item.Title);
-                                grabTriggered = true;
-                                break;
-                            }
-
-                            _logger.LogWarning("[TransitionService] NZBdav grab failed for '{Title}': {Error}, trying next release",
-                                release.Title, result.ErrorMessage);
-                        }
-
-                        if (!grabTriggered && usenetReleases.Count > 0)
-                        {
-                            _logger.LogWarning("[TransitionService] All NZBdav grabs failed for {Title}", item.Title);
-                        }
-                        else if (usenetReleases.Count == 0)
-                        {
-                            _logger.LogWarning("[TransitionService] No usenet releases found for {Title}", item.Title);
-                        }
+                        _logger.LogInformation("[TransitionService] Pre-validation: found {Count} eligible {Protocol} releases for {Title} (symlink via {Client})", eligibleReleases.Count, symlinkProtocol, item.Title, nzbdavClient.Name);
                     }
                     else
                     {
-                        _logger.LogWarning("[TransitionService] NZBdav client not found for {Title}, falling back to TriggerSearch", item.Title);
+                        _logger.LogWarning("[TransitionService] NZBdav client not found for {Title}", item.Title);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[TransitionService] NZBdav targeted grab failed for {Title}, will fall back", item.Title);
+                    _logger.LogWarning(ex, "[TransitionService] Pre-validation release search failed for {Title}", item.Title);
                 }
 
-                // Fallback to TriggerSearch only if targeted grab failed
-                if (!grabTriggered)
+                // ABORT CHECK: If no NZBdav client AND no Arr IDs for TriggerSearch fallback, do not delete the file
+                bool hasTriggerSearchFallback = (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                    || ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue);
+
+                if (nzbdavClient == null && !hasTriggerSearchFallback)
+                {
+                    _logger.LogError("[TransitionService] ABORTING symlink transition for {Title}: no NZBdav client and no Arr ID for TriggerSearch fallback", item.Title);
+                    throw new InvalidOperationException($"Cannot transition {item.Title} to symlink: no download client configured and no Arr ID for fallback search");
+                }
+
+                // PHASE 2: Delete the file via Arr API and/or disk (only after pre-validation)
+                bool apiDeleted = false;
+                var arrFilePath = await RemapToArrPath(item.FilePath, item);
+
+                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                {
+                    _logger.LogDebug("[TransitionService] Deleting movie file via Radarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
+                    apiDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath)
+                        || await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, arrFilePath);
+                }
+                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                {
+                    _logger.LogDebug("[TransitionService] Deleting episode file via Sonarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
+                    apiDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath)
+                        || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
+                }
+
+                if (await _fileService.FileExists(item.FilePath))
+                {
+                    _logger.LogDebug("[TransitionService] Deleting file from disk: {Path}", item.FilePath);
+                    await _fileService.DeleteFile(item.FilePath);
+                }
+
+                // PHASE 3: Grab the best release (releases already searched in Phase 1)
+                if (nzbdavClient != null && eligibleReleases.Count > 0)
+                {
+                    foreach (var release in eligibleReleases)
+                    {
+                        GrabResult result;
+                        if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                        {
+                            int[]? epIds = null;
+                            if (item.SonarrId.HasValue && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                            {
+                                var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                                if (epId.HasValue) epIds = new[] { epId.Value };
+                            }
+                            result = await _sonarrService.GrabRelease(release.Guid, release.IndexerId, nzbdavClient.Id, item.SonarrId, epIds);
+                        }
+                        else
+                        {
+                            result = await _radarrService.GrabRelease(release.Guid, release.IndexerId, nzbdavClient.Id, item.RadarrId);
+                        }
+
+                        if (result.Success)
+                        {
+                            _logger.LogInformation("[TransitionService] Grabbed '{Title}' (CF:{CF}, QW:{QW}, Age:{Age}d) via NZBdav for {ItemTitle}",
+                                release.Title, release.CustomFormatScore, release.QualityWeight, release.Age, item.Title);
+                            grabTriggered = true;
+                            break;
+                        }
+
+                        _logger.LogWarning("[TransitionService] Grab failed for '{Title}': {Error}, trying next",
+                            release.Title, result.ErrorMessage);
+                    }
+                }
+                else if (nzbdavClient != null && eligibleReleases.Count == 0)
+                {
+                    _logger.LogWarning("[TransitionService] No eligible releases found for {Title}, trying TriggerSearch fallback", item.Title);
+                }
+
+                // Fallback: TriggerSearch via Arr
+                if (!grabTriggered && hasTriggerSearchFallback)
                 {
                     if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
                     {
-                        _logger.LogWarning("[TransitionService] Falling back to Radarr TriggerSearch for {Title} — client selection is uncontrolled", item.Title);
+                        _logger.LogWarning("[TransitionService] Falling back to Radarr TriggerSearch for {Title}", item.Title);
                         await _radarrService.TriggerSearch(item.RadarrId.Value);
                         grabTriggered = true;
                     }
                     else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                     {
-                        _logger.LogWarning("[TransitionService] Falling back to Sonarr TriggerSearch for {Title} — client selection is uncontrolled", item.Title);
+                        _logger.LogWarning("[TransitionService] Falling back to Sonarr TriggerSearch for {Title}", item.Title);
                         if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
                         {
                             var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
@@ -453,13 +464,25 @@ namespace Storarr.Services
                 var previousState = item.CurrentState;
                 item.CurrentState = FileState.PendingSymlink;
                 item.StateChangedAt = DateTime.UtcNow;
+                item.PendingSymlinkAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
-                await LogActivity(item.Id, "TransitionToSymlink", previousState, FileState.PendingSymlink,
-                    apiDeleted ? "Deleted via Arr API" : "Deleted from disk");
-                await _hubContext.Clients.All.SendAsync("MediaUpdated", item.Id, item.CurrentState.ToString());
 
-                _logger.LogInformation("[TransitionService] Successfully transitioned {Title} to PendingSymlink state (API deleted: {ApiDeleted})",
-                    item.Title, apiDeleted);
+                if (grabTriggered)
+                {
+                    await LogActivity(item.Id, "TransitionToSymlink", previousState, FileState.PendingSymlink,
+                        apiDeleted ? "Deleted via Arr API, grab triggered" : "Deleted from disk, grab triggered");
+                    _logger.LogInformation("[TransitionService] Transitioned {Title} to PendingSymlink (grab triggered, API deleted: {ApiDeleted})",
+                        item.Title, apiDeleted);
+                }
+                else
+                {
+                    await LogActivity(item.Id, "TransitionToSymlink", previousState, FileState.PendingSymlink,
+                        "File deleted but NO grab triggered - will need manual resolution");
+                    _logger.LogError("[TransitionService] Transitioned {Title} to PendingSymlink but NO grab was triggered! File deleted with no replacement. Manual intervention required.",
+                        item.Title);
+                }
+
+                await _hubContext.Clients.All.SendAsync("MediaUpdated", item.Id, item.CurrentState.ToString());
             }
             catch (Exception ex)
             {
@@ -479,6 +502,148 @@ namespace Storarr.Services
                 return;
             }
 
+            var now = DateTime.UtcNow;
+
+            // Stale PendingSymlink reaper: runs in ALL modes (this is cleanup, not auto-transition)
+            var stalePendingItems = await _dbContext.MediaItems
+                .Where(m => m.CurrentState == FileState.PendingSymlink && m.PendingSymlinkAt != null)
+                .ToListAsync();
+            _logger.LogDebug("[TransitionService] Found {Count} PendingSymlink items to check for staleness", stalePendingItems.Count);
+
+            foreach (var pendingItem in stalePendingItems)
+            {
+                var pendingAge = now - pendingItem.PendingSymlinkAt!.Value;
+
+                // Check if a symlink/strm file has appeared on disk
+                var dir = System.IO.Path.GetDirectoryName(pendingItem.FilePath);
+                if (dir != null)
+                {
+                    try
+                    {
+                        if (await _fileService.FileExists(pendingItem.FilePath))
+                        {
+                            var isSymlink = await _fileService.IsSymlink(pendingItem.FilePath);
+                            if (isSymlink)
+                            {
+                                _logger.LogInformation("[TransitionService] Stale PendingSymlink resolved: symlink file appeared for {Title}", pendingItem.Title);
+                                pendingItem.CurrentState = FileState.Symlink;
+                                pendingItem.StateChangedAt = DateTime.UtcNow;
+                                pendingItem.PendingSymlinkAt = null;
+                                try
+                                {
+                                    await _dbContext.SaveChangesAsync();
+                                    await LogActivity(pendingItem.Id, "PendingSymlinkReaper", FileState.PendingSymlink, FileState.Symlink,
+                                        "Symlink file appeared on disk");
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "[TransitionService] Failed to save symlink resolution for {Title}", pendingItem.Title);
+                                    _dbContext.Entry(pendingItem).State = Microsoft.EntityFrameworkCore.EntityState.Unchanged;
+                                }
+                                continue;
+                            }
+                        }
+
+                        // Check for .strm files in the directory
+                        var allFiles = await _fileService.ScanDirectory(dir, false);
+                        var strmFiles = allFiles
+                            .Where(f => f.IsSymlink || f.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+
+                        if (pendingItem.SeasonNumber.HasValue && pendingItem.EpisodeNumber.HasValue)
+                        {
+                            var epPattern = $"S{pendingItem.SeasonNumber.Value:D2}E{pendingItem.EpisodeNumber.Value:D2}";
+                            strmFiles = strmFiles
+                                .Where(f => System.IO.Path.GetFileName(f.Path).Contains(epPattern, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+
+                        if (strmFiles.Count > 0)
+                        {
+                            var targetPath = strmFiles[0].Path;
+                            // Check if this path is already used by another MediaItem (UNIQUE constraint)
+                            var pathAlreadyUsed = await _dbContext.MediaItems
+                                .AnyAsync(m => m.Id != pendingItem.Id && m.FilePath == targetPath);
+                            if (pathAlreadyUsed)
+                            {
+                                _logger.LogDebug("[TransitionService] Skipping strm resolution for {Title}: path {Path} already in use by another item",
+                                    pendingItem.Title, targetPath);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("[TransitionService] Stale PendingSymlink resolved: .strm file found for {Title}", pendingItem.Title);
+                                pendingItem.FilePath = targetPath;
+                                pendingItem.FileSize = strmFiles[0].Size;
+                                pendingItem.CurrentState = FileState.Symlink;
+                                pendingItem.StateChangedAt = DateTime.UtcNow;
+                                pendingItem.PendingSymlinkAt = null;
+                                try
+                                {
+                                    await _dbContext.SaveChangesAsync();
+                                    await LogActivity(pendingItem.Id, "PendingSymlinkReaper", FileState.PendingSymlink, FileState.Symlink,
+                                        "STRM file found in directory scan");
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "[TransitionService] Failed to save strm resolution for {Title}", pendingItem.Title);
+                                    _dbContext.Entry(pendingItem).State = Microsoft.EntityFrameworkCore.EntityState.Unchanged;
+                                }
+                            }
+                            if (!pathAlreadyUsed)
+                            {
+                                // Item was resolved successfully
+                                continue;
+                            }
+                            // strm found but path already used - fall through to retry
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[TransitionService] Error checking for symlink resolution for {Title}", pendingItem.Title);
+                    }
+                }
+
+                // If pending for more than 30 minutes but less than 2 hours, retry with TriggerSearch
+                // Don\'t use full TransitionToSymlink (it would re-delete files that are already gone)
+                if (pendingAge.TotalMinutes > 30 && pendingAge.TotalHours < 2)
+                {
+                    _logger.LogWarning("[TransitionService] PendingSymlink item {Title} has been pending for {Minutes:F0} minutes - retrying via TriggerSearch",
+                        pendingItem.Title, pendingAge.TotalMinutes);
+                    try
+                    {
+                        if (pendingItem.Type == MediaType.Movie && pendingItem.RadarrId.HasValue)
+                        {
+                            await _radarrService.TriggerSearch(pendingItem.RadarrId.Value);
+                        }
+                        else if ((pendingItem.Type == MediaType.Series || pendingItem.Type == MediaType.Anime) && pendingItem.SonarrId.HasValue)
+                        {
+                            if (pendingItem.SeasonNumber.HasValue && pendingItem.EpisodeNumber.HasValue)
+                            {
+                                var epId = await _sonarrService.GetEpisodeId(pendingItem.SonarrId.Value, pendingItem.SeasonNumber.Value, pendingItem.EpisodeNumber.Value);
+                                if (epId.HasValue)
+                                    await _sonarrService.TriggerSearch(pendingItem.SonarrId.Value, new[] { epId.Value });
+                                else
+                                    await _sonarrService.TriggerSearch(pendingItem.SonarrId.Value);
+                            }
+                            else
+                            {
+                                await _sonarrService.TriggerSearch(pendingItem.SonarrId.Value);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[TransitionService] TriggerSearch retry failed for {Title}", pendingItem.Title);
+                    }
+                }
+                else if (pendingAge.TotalHours >= 2)
+                {
+                    _logger.LogWarning("[TransitionService] PendingSymlink item {Title} has been pending for {Hours:F1} hours - giving up on automatic retry",
+                        pendingItem.Title, pendingAge.TotalHours);
+                }
+            }
+            await _dbContext.SaveChangesAsync();
+
             // Check LibraryMode - only process auto-transitions in FullAutomation mode
             if (config.LibraryMode != LibraryMode.FullAutomation)
             {
@@ -487,7 +652,6 @@ namespace Storarr.Services
                 return;
             }
 
-            var now = DateTime.UtcNow;
             var symlinkToMkvThreshold = config.GetSymlinkToMkvTimeSpan();
             var mkvToSymlinkThreshold = config.GetMkvToSymlinkTimeSpan();
 
@@ -707,42 +871,6 @@ namespace Storarr.Services
             return ordered.FirstOrDefault();
         }
 
-        private async Task<bool> HasUsenetReleases(MediaItem item)
-        {
-            try
-            {
-                if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
-                {
-                    if (!item.SeasonNumber.HasValue || !item.EpisodeNumber.HasValue)
-                    {
-                        _logger.LogDebug("[TransitionService] Cannot check usenet: missing season/episode for {Title}", item.Title);
-                        return false;
-                    }
-
-                    var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                    if (!episodeId.HasValue)
-                    {
-                        _logger.LogDebug("[TransitionService] Cannot check usenet: episode not found for {Title}", item.Title);
-                        return false;
-                    }
-
-                    var releases = await _sonarrService.SearchReleases(item.SonarrId.Value, new[] { episodeId.Value });
-                    return releases.Any(r => r.Protocol?.Equals("usenet", StringComparison.OrdinalIgnoreCase) == true);
-                }
-                else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                {
-                    var releases = await _radarrService.SearchReleases(item.RadarrId.Value);
-                    return releases.Any(r => r.Protocol?.Equals("usenet", StringComparison.OrdinalIgnoreCase) == true);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[TransitionService] Failed to check usenet availability for {Title}", item.Title);
-            }
-
-            return false;
-        }
-
         private async Task LogActivity(int mediaItemId, string action, FileState fromState, FileState toState, string? details = null)
         {
             _dbContext.ActivityLogs.Add(new ActivityLog
@@ -757,53 +885,100 @@ namespace Storarr.Services
             await _dbContext.SaveChangesAsync();
         }
 
-        private static string RemapToArrPath(string path)
+        private async Task<string> RemapToArrPath(string path, MediaItem item)
         {
-            // storarr mounts at /media, /tv, /movies but Arr stacks use /data/media, /data/tv, /data/movies
-            string[][] mappings = {
-                new[] { "/media/", "/data/media/" },
-                new[] { "/tv/", "/data/tv/" },
-                new[] { "/movies/", "/data/movies/" },
-            };
-
-            foreach (var mapping in mappings)
+            try
             {
-                if (path.StartsWith(mapping[0], StringComparison.OrdinalIgnoreCase))
-                    return mapping[1] + path.Substring(mapping[0].Length);
+                (string storarrPrefix, string arrPrefix)? mapping = null;
+
+                if ((item.Type == MediaType.Movie) && item.RadarrId.HasValue)
+                {
+                    var movie = await _radarrService.GetMovie(item.RadarrId.Value);
+                    if (movie?.Path != null)
+                    {
+                        mapping = ExtractPathMapping(movie.Path, path);
+                    }
+                }
+                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                {
+                    var series = await _sonarrService.GetSeries(item.SonarrId.Value);
+                    if (series?.Path != null)
+                    {
+                        mapping = ExtractPathMapping(series.Path, path);
+                    }
+                }
+
+                if (mapping != null && path.StartsWith(mapping.Value.storarrPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return mapping.Value.arrPrefix + path.Substring(mapping.Value.storarrPrefix.Length);
+                }
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[TransitionService] Failed to dynamically remap path {Path}, using original", path);
+            }
+
             return path;
+        }
+
+        private static (string storarrPrefix, string arrPrefix)? ExtractPathMapping(string arrEntityPath, string storarrFilePath)
+        {
+            var arrSegments = arrEntityPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var storarrSegments = storarrFilePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            var arrLastName = arrSegments.LastOrDefault();
+            if (arrLastName == null) return null;
+
+            var storarrLastNameIdx = Array.FindIndex(storarrSegments,
+                s => s.Equals(arrLastName, StringComparison.OrdinalIgnoreCase));
+            if (storarrLastNameIdx < 0) return null;
+
+            var storarrPrefix = "/" + string.Join('/', storarrSegments.Take(storarrLastNameIdx)) + "/";
+            var arrPrefix = "/" + string.Join('/', arrSegments.Take(arrSegments.Length - 1)) + "/";
+
+            if (storarrFilePath.StartsWith(storarrPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (storarrPrefix, arrPrefix);
+            }
+
+            return null;
         }
 
         private static string NormalizeTitle(string title)
         {
-            // Remove punctuation, articles, and extra words to create a matchable form
             var normalized = title.ToLowerInvariant();
-            // Remove common suffixes like "(2024)" year markers
             normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\s*\(\d{4}\)\s*", " ");
-            // Replace punctuation with spaces
             normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"[^a-z0-9]+", " ");
-            // Remove common articles/prepositions for matching
-            var stopWords = new HashSet<string> { "a", "an", "the", "of", "in", "and", "for", "to", "is" };
+            var stopWords = new HashSet<string> { "a", "an", "the", "of", "in", "and", "for", "to", "is", "us", "uk" };
             var words = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .Where(w => !stopWords.Contains(w))
                 .ToList();
             return string.Join(" ", words);
         }
 
-        private static bool ReleaseMatchesTitle(string releaseTitle, string normalizedItemTitle)
+        private static bool ReleaseMatchesItem(string releaseTitle, MediaItem item, string normalizedItemTitle)
         {
             var normalizedRelease = System.Text.RegularExpressions.Regex.Replace(
                 releaseTitle.ToLowerInvariant(), @"[^a-z0-9]+", " ");
 
-            // Check if all significant words from the item title appear in the release title
             var itemWords = normalizedItemTitle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (itemWords.Length == 0) return true;
 
             var releaseWords = new HashSet<string>(normalizedRelease.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-            var matchCount = itemWords.Count(w => releaseWords.Contains(w));
+            var titleMatchCount = itemWords.Count(w => releaseWords.Contains(w));
+            var titleMatch = titleMatchCount >= Math.Max(1, (int)Math.Ceiling(itemWords.Length * 0.5));
 
-            // Require at least 60% of item title words to match
-            return matchCount >= Math.Max(1, (int)Math.Ceiling(itemWords.Length * 0.6));
+            // For series/anime: require BOTH S##E## pattern AND title match
+            if ((item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+            {
+                var epPattern = $"s{item.SeasonNumber.Value:d2}e{item.EpisodeNumber.Value:d2}";
+                var epMatch = normalizedRelease.Contains(epPattern);
+                return epMatch && titleMatch;
+            }
+
+            // For movies: title match only
+            return titleMatch;
         }
     }
 }

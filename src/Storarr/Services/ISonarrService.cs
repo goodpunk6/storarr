@@ -14,6 +14,7 @@ namespace Storarr.Services
         public int QualityWeight { get; set; }
         public int CustomFormatScore { get; set; }
         public int? Seeders { get; set; }
+        public int Age { get; set; }
     }
 
     public class GrabResult

@@ -191,6 +191,28 @@ namespace Storarr.Controllers
                 if (dto.DownloadClient3ApiKey != null && !IsMasked(dto.DownloadClient3ApiKey))
                     config.DownloadClient3ApiKey = string.IsNullOrWhiteSpace(dto.DownloadClient3ApiKey) ? null : dto.DownloadClient3ApiKey.Trim();
 
+                // Download client IDs (0 as sentinel to clear)
+                if (dto.SonarrSymlinkDownloadClientId.HasValue)
+                    config.SonarrSymlinkDownloadClientId = dto.SonarrSymlinkDownloadClientId.Value == 0 ? null : dto.SonarrSymlinkDownloadClientId.Value;
+                if (dto.RadarrSymlinkDownloadClientId.HasValue)
+                    config.RadarrSymlinkDownloadClientId = dto.RadarrSymlinkDownloadClientId.Value == 0 ? null : dto.RadarrSymlinkDownloadClientId.Value;
+                if (dto.SonarrMkvDownloadClientId.HasValue)
+                    config.SonarrMkvDownloadClientId = dto.SonarrMkvDownloadClientId.Value == 0 ? null : dto.SonarrMkvDownloadClientId.Value;
+                if (dto.RadarrMkvDownloadClientId.HasValue)
+                    config.RadarrMkvDownloadClientId = dto.RadarrMkvDownloadClientId.Value == 0 ? null : dto.RadarrMkvDownloadClientId.Value;
+
+                // STRM Refresh Schedule
+                if (dto.StrmRefreshEnabled.HasValue)
+                    config.StrmRefreshEnabled = dto.StrmRefreshEnabled.Value;
+                if (dto.StrmRefreshHour.HasValue)
+                    config.StrmRefreshHour = Math.Clamp(dto.StrmRefreshHour.Value, 0, 23);
+                if (dto.StrmRefreshMinute.HasValue)
+                    config.StrmRefreshMinute = Math.Clamp(dto.StrmRefreshMinute.Value, 0, 59);
+                if (!string.IsNullOrEmpty(dto.StrmRefreshDayOfWeek) && Enum.TryParse<DayOfWeek>(dto.StrmRefreshDayOfWeek, out var dayOfWeek))
+                    config.StrmRefreshDayOfWeek = dayOfWeek;
+                if (!string.IsNullOrEmpty(dto.StrmRefreshInterval) && Enum.TryParse<StrmRefreshInterval>(dto.StrmRefreshInterval, out var interval))
+                    config.StrmRefreshInterval = interval;
+
                 await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("[ConfigController] Config saved successfully");
 
@@ -330,6 +352,46 @@ namespace Storarr.Controllers
             }
         }
 
+        [HttpGet("download-clients")]
+        public async Task<ActionResult<DownloadClientsResponse>> GetDownloadClients()
+        {
+            var result = new DownloadClientsResponse();
+
+            try
+            {
+                var sonarrClients = await _sonarrService.GetDownloadClients();
+                result.SonarrClients = sonarrClients.Select(c => new DownloadClientOption
+                {
+                    Id = c.Id,
+                    Name = c.Name,
+                    Implementation = c.Implementation,
+                    Enable = c.Enable
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get Sonarr download clients");
+            }
+
+            try
+            {
+                var radarrClients = await _radarrService.GetDownloadClients();
+                result.RadarrClients = radarrClients.Select(c => new DownloadClientOption
+                {
+                    Id = c.Id,
+                    Name = c.Name,
+                    Implementation = c.Implementation,
+                    Enable = c.Enable
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get Radarr download clients");
+            }
+
+            return Ok(result);
+        }
+
         private async Task<ConnectionTestResult> TestDownloadClient(DownloadClientType type, string url, string? username, string? password, string? apiKey)
         {
             var name = type switch
@@ -412,7 +474,19 @@ namespace Storarr.Controllers
                 DownloadClient3Enabled = config.DownloadClient3Enabled,
                 DownloadClient3Type = config.DownloadClient3Type.ToString(),
                 DownloadClient3Url = config.DownloadClient3Url,
-                DownloadClient3ApiKey = MaskApiKey(config.DownloadClient3ApiKey)
+                DownloadClient3ApiKey = MaskApiKey(config.DownloadClient3ApiKey),
+                // STRM Refresh Schedule
+                StrmRefreshEnabled = config.StrmRefreshEnabled,
+                StrmRefreshHour = config.StrmRefreshHour,
+                StrmRefreshMinute = config.StrmRefreshMinute,
+                StrmRefreshDayOfWeek = config.StrmRefreshDayOfWeek.ToString(),
+                StrmRefreshInterval = config.StrmRefreshInterval.ToString(),
+                StrmRefreshLastRun = config.StrmRefreshLastRun,
+                StrmRefreshNextRun = config.StrmRefreshNextRun,
+                SonarrSymlinkDownloadClientId = config.SonarrSymlinkDownloadClientId,
+                RadarrSymlinkDownloadClientId = config.RadarrSymlinkDownloadClientId,
+                SonarrMkvDownloadClientId = config.SonarrMkvDownloadClientId,
+                RadarrMkvDownloadClientId = config.RadarrMkvDownloadClientId
             };
         }
 

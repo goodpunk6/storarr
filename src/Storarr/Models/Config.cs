@@ -101,6 +101,21 @@ namespace Storarr.Models
         [MaxLength(100)]
         public string? DownloadClient3ApiKey { get; set; }
 
+        // Download client IDs (Sonarr/Radarr internal IDs for redirecting grabs)
+        public int? SonarrSymlinkDownloadClientId { get; set; }
+        public int? RadarrSymlinkDownloadClientId { get; set; }
+        public int? SonarrMkvDownloadClientId { get; set; }
+        public int? RadarrMkvDownloadClientId { get; set; }
+
+        // STRM Refresh Schedule
+        public bool StrmRefreshEnabled { get; set; } = true;
+        public int StrmRefreshHour { get; set; } = 4;          // 4 AM
+        public int StrmRefreshMinute { get; set; } = 0;
+        public DayOfWeek StrmRefreshDayOfWeek { get; set; } = DayOfWeek.Monday;
+        public StrmRefreshInterval StrmRefreshInterval { get; set; } = StrmRefreshInterval.Weekly;
+        public DateTime? StrmRefreshLastRun { get; set; }
+        public DateTime? StrmRefreshNextRun { get; set; }
+
         // Helper methods
         public TimeSpan GetSymlinkToMkvTimeSpan()
         {

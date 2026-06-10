@@ -260,6 +260,11 @@ namespace Storarr.Services
             {
                 var request = await CreateRequest(HttpMethod.Delete, $"api/v3/moviefile/{movieFileId}");
                 var response = await _httpClient.SendAsync(request);
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogDebug("Movie file {MovieFileId} already deleted (404)", movieFileId);
+                    return;
+                }
                 response.EnsureSuccessStatusCode();
 
                 _logger.LogInformation("Deleted movie file {MovieFileId}", movieFileId);
@@ -372,7 +377,8 @@ namespace Storarr.Services
                     Protocol = r.Protocol,
                     QualityWeight = r.QualityWeight,
                     CustomFormatScore = r.CustomFormatScore,
-                    Seeders = r.Seeders
+                    Seeders = r.Seeders,
+                    Age = r.Age
                 }) ?? Enumerable.Empty<ReleaseResult>();
             }
             catch (Exception ex)
@@ -526,6 +532,7 @@ namespace Storarr.Services
         public int QualityWeight { get; set; }
         public int CustomFormatScore { get; set; }
         public int? Seeders { get; set; }
+        public int Age { get; set; }
     }
 
     internal class RadarrDownloadClientResponse

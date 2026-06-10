@@ -74,7 +74,15 @@ namespace Storarr
                     AddColumnIfNotExists(dbContext, "Configs", "SonarrMkvRootFolder", "TEXT NULL");
                     AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkRootFolder", "TEXT NULL");
                     AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvRootFolder", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "SonarrSymlinkDownloadClientId", "INTEGER NULL");
+                    AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkDownloadClientId", "INTEGER NULL");
                 }
+
+                // Always ensure new columns exist regardless of migration path
+                AddColumnIfNotExists(dbContext, "Configs", "SonarrSymlinkDownloadClientId", "INTEGER NULL");
+                AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkDownloadClientId", "INTEGER NULL");
+                AddColumnIfNotExists(dbContext, "Configs", "SonarrMkvDownloadClientId", "INTEGER NULL");
+                AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvDownloadClientId", "INTEGER NULL");
             }
 
             host.Run();
@@ -137,8 +145,10 @@ namespace Storarr
             // HTTP clients for services
             services.AddHttpClient<IJellyfinService, JellyfinService>();
             services.AddHttpClient<IJellyseerrService, JellyseerrService>();
-            services.AddHttpClient<ISonarrService, SonarrService>();
-            services.AddHttpClient<IRadarrService, RadarrService>();
+            services.AddHttpClient<ISonarrService, SonarrService>()
+                .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromMinutes(5));
+            services.AddHttpClient<IRadarrService, RadarrService>()
+                .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromMinutes(5));
             services.AddScoped<IDownloadClientService, DownloadClientService>();
 
             // Services
@@ -184,6 +194,7 @@ namespace Storarr
             services.AddHostedService<TransitionScheduler>();
             services.AddHostedService<LibraryScanner>();
             services.AddHostedService<DownloadMonitor>();
+            services.AddHostedService<StrmRefreshScheduler>();
 
             // SPA static files
             services.AddSpaStaticFiles(configuration =>

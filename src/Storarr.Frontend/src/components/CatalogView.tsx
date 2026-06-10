@@ -350,6 +350,51 @@ export default function CatalogView({ filters }: CatalogViewProps) {
     [selectedEpisodes]
   )
 
+  // Global select-all state
+  const globalSelectionState = useMemo((): "none" | "some" | "all" => {
+    const groupsWithEpisodes = filteredCatalog.filter(
+      (g) => g.episodes.length > 0 || (g.type !== "Movie" && g.totalEpisodes > 0)
+    )
+    if (groupsWithEpisodes.length === 0) return "none"
+    const states = groupsWithEpisodes.map((g) => getGroupSelectionState(g))
+    if (states.every((s) => s === "all")) return "all"
+    if (states.some((s) => s !== "none")) return "some"
+    return "none"
+  }, [filteredCatalog, getGroupSelectionState])
+
+  const toggleSelectAll = useCallback(async () => {
+    if (globalSelectionState === "all") {
+      // Deselect all
+      setSelectedEpisodes(new Map())
+      return
+    }
+    // Select all — expand and select every group
+    const next = new Map(selectedEpisodes)
+    for (const group of filteredCatalog) {
+      let episodes = group.episodes
+      // For series with unloaded episodes, load them first
+      if (episodes.length === 0 && group.type !== "Movie" && group.sonarrId) {
+        try {
+          const response = await getSeriesEpisodes(group.sonarrId)
+          episodes = response.data
+          setCatalog((prev) =>
+            prev.map((g) =>
+              g.sonarrId === group.sonarrId ? { ...g, episodes: response.data } : g
+            )
+          )
+          setExpandedGroups((prev) => new Set(prev).add(group.sonarrId!))
+        } catch (e) {
+          console.error(`Failed to load episodes for select-all:`, e)
+          continue
+        }
+      }
+      for (const ep of episodes) {
+        next.set(getEpisodeKey(ep, group), { ep, group })
+      }
+    }
+    setSelectedEpisodes(next)
+  }, [filteredCatalog, globalSelectionState, selectedEpisodes])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -441,7 +486,15 @@ export default function CatalogView({ filters }: CatalogViewProps) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-arr-primary">
-                <th className="w-10 px-2 py-3"></th>
+                <th className="w-10 px-2 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={globalSelectionState === "all"}
+                    ref={(el) => { if (el) el.indeterminate = globalSelectionState === "some" }}
+                    onChange={toggleSelectAll}
+                    className="rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent cursor-pointer"
+                  />
+                </th>
                 <th className="w-10 px-2 py-3"></th>
                 <th className="text-left px-4 py-3 text-arr-muted font-medium">Title</th>
                 <th className="text-left px-4 py-3 text-arr-muted font-medium">State</th>

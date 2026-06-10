@@ -17,15 +17,18 @@ namespace Storarr.Controllers
     {
         private readonly StorarrDbContext _dbContext;
         private readonly IFileManagementService _fileService;
+        private readonly ITransitionService _transitionService;
         private readonly ILogger<WebhooksController> _logger;
 
         public WebhooksController(
             StorarrDbContext dbContext,
             IFileManagementService fileService,
+            ITransitionService transitionService,
             ILogger<WebhooksController> logger)
         {
             _dbContext = dbContext;
             _fileService = fileService;
+            _transitionService = transitionService;
             _logger = logger;
         }
 
@@ -163,17 +166,53 @@ namespace Storarr.Controllers
         {
             if (payload.EpisodeFile == null) return;
 
-            // Find the item by path
-            var item = await _dbContext.MediaItems
-                .FirstOrDefaultAsync(m => m.FilePath == payload.EpisodeFile.Path);
+            var remappedPath = RemapArrPath(payload.EpisodeFile.Path);
 
-            if (item != null && item.CurrentState == FileState.Downloading)
+            // Find the item by path (try both original and remapped)
+            var item = await _dbContext.MediaItems
+                .FirstOrDefaultAsync(m => m.FilePath == remappedPath || m.FilePath == payload.EpisodeFile.Path);
+
+            // ID-based fallback: lookup by SonarrId + matching state
+            if (item == null && payload.Series?.Id > 0)
             {
-                var isSymlink = await _fileService.IsSymlink(payload.EpisodeFile.Path);
+                item = await _dbContext.MediaItems
+                    .FirstOrDefaultAsync(m => m.SonarrId == payload.Series.Id &&
+                        (m.CurrentState == FileState.Downloading || m.CurrentState == FileState.PendingSymlink));
+            }
+
+            if (item != null && (item.CurrentState == FileState.Downloading || item.CurrentState == FileState.PendingSymlink))
+            {
+                var isSymlink = await IsSymlinkSafe(remappedPath);
+
+                // Self-healing: if expecting MKV (Downloading) but got a symlink/strm, accept as Symlink and log failure
+                if (item.CurrentState == FileState.Downloading && isSymlink)
+                {
+                    _logger.LogWarning("Sonarr webhook: item '{Title}' was converting to MKV but received symlink/strm file '{Path}' — accepting as Symlink (MKV conversion failed)",
+                        item.Title, remappedPath);
+
+                    item.CurrentState = FileState.Symlink;
+                    item.StateChangedAt = DateTime.UtcNow;
+                    item.FilePath = remappedPath;
+                    item.FileSize = payload.EpisodeFile.Size;
+
+                    _dbContext.ActivityLogs.Add(new ActivityLog
+                    {
+                        MediaItemId = item.Id,
+                        Action = "SelfHeal_AcceptStrm",
+                        FromState = FileState.Downloading.ToString(),
+                        ToState = FileState.Symlink.ToString(),
+                        Details = $"MKV conversion failed — received .strm/symlink instead: {remappedPath}. Accepted as Symlink.",
+                        Timestamp = DateTime.UtcNow
+                    });
+                    await _dbContext.SaveChangesAsync();
+                    return;
+                }
+
                 var previousState = item.CurrentState;
 
                 item.CurrentState = isSymlink ? FileState.Symlink : FileState.Mkv;
                 item.StateChangedAt = DateTime.UtcNow;
+                item.FilePath = remappedPath;
                 item.FileSize = payload.EpisodeFile.Size;
                 item.SonarrFileId = payload.EpisodeFile.Id;
 
@@ -184,7 +223,7 @@ namespace Storarr.Controllers
                     Action = "DownloadComplete",
                     FromState = previousState.ToString(),
                     ToState = item.CurrentState.ToString(),
-                    Details = $"Downloaded via Sonarr: {payload.EpisodeFile.Path}",
+                    Details = $"Downloaded via Sonarr: {remappedPath}",
                     Timestamp = DateTime.UtcNow
                 });
 
@@ -198,17 +237,53 @@ namespace Storarr.Controllers
         {
             if (payload.MovieFile == null) return;
 
-            // Find the item by path
-            var item = await _dbContext.MediaItems
-                .FirstOrDefaultAsync(m => m.FilePath == payload.MovieFile.Path);
+            var remappedPath = RemapArrPath(payload.MovieFile.Path);
 
-            if (item != null && item.CurrentState == FileState.Downloading)
+            // Find the item by path (try both original and remapped)
+            var item = await _dbContext.MediaItems
+                .FirstOrDefaultAsync(m => m.FilePath == remappedPath || m.FilePath == payload.MovieFile.Path);
+
+            // ID-based fallback: lookup by RadarrId + matching state
+            if (item == null && payload.Movie?.Id > 0)
             {
-                var isSymlink = await _fileService.IsSymlink(payload.MovieFile.Path);
+                item = await _dbContext.MediaItems
+                    .FirstOrDefaultAsync(m => m.RadarrId == payload.Movie.Id &&
+                        (m.CurrentState == FileState.Downloading || m.CurrentState == FileState.PendingSymlink));
+            }
+
+            if (item != null && (item.CurrentState == FileState.Downloading || item.CurrentState == FileState.PendingSymlink))
+            {
+                var isSymlink = await IsSymlinkSafe(remappedPath);
+
+                // Self-healing: if expecting MKV (Downloading) but got a symlink/strm, accept as Symlink and log failure
+                if (item.CurrentState == FileState.Downloading && isSymlink)
+                {
+                    _logger.LogWarning("Radarr webhook: item '{Title}' was converting to MKV but received symlink/strm file '{Path}' — accepting as Symlink (MKV conversion failed)",
+                        item.Title, remappedPath);
+
+                    item.CurrentState = FileState.Symlink;
+                    item.StateChangedAt = DateTime.UtcNow;
+                    item.FilePath = remappedPath;
+                    item.FileSize = payload.MovieFile.Size;
+
+                    _dbContext.ActivityLogs.Add(new ActivityLog
+                    {
+                        MediaItemId = item.Id,
+                        Action = "SelfHeal_AcceptStrm",
+                        FromState = FileState.Downloading.ToString(),
+                        ToState = FileState.Symlink.ToString(),
+                        Details = $"MKV conversion failed — received .strm/symlink instead: {remappedPath}. Accepted as Symlink.",
+                        Timestamp = DateTime.UtcNow
+                    });
+                    await _dbContext.SaveChangesAsync();
+                    return;
+                }
+
                 var previousState = item.CurrentState;
 
                 item.CurrentState = isSymlink ? FileState.Symlink : FileState.Mkv;
                 item.StateChangedAt = DateTime.UtcNow;
+                item.FilePath = remappedPath;
                 item.FileSize = payload.MovieFile.Size;
                 item.RadarrFileId = payload.MovieFile.Id;
 
@@ -226,6 +301,37 @@ namespace Storarr.Controllers
                 await _dbContext.SaveChangesAsync();
 
                 _logger.LogInformation("Radarr download complete for {Title}", item.Title);
+            }
+        }
+
+        private static string RemapArrPath(string path)
+        {
+            // Sonarr/Radarr may use internal data paths that differ from storarr's mount paths.
+            // Try common prefixes that Arr stacks use. This is a best-effort remapping.
+            string[] arrPrefixes = { "/data/media", "/data/tv", "/data/movies" };
+            string[] storarrPrefixes = { "/media", "/tv", "/movies" };
+
+            for (int i = 0; i < arrPrefixes.Length; i++)
+            {
+                if (path.StartsWith(arrPrefixes[i] + "/", StringComparison.OrdinalIgnoreCase))
+                    return storarrPrefixes[i] + path.Substring(arrPrefixes[i].Length);
+            }
+            return path;
+        }
+
+        private async Task<bool> IsSymlinkSafe(string path)
+        {
+            // .strm files are streaming pointer files — always treated as symlinks
+            if (path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            try
+            {
+                return await _fileService.IsSymlink(path);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
             }
         }
     }

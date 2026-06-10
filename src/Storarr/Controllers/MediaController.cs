@@ -197,10 +197,10 @@ namespace Storarr.Controllers
                 return NotFound();
             }
 
-            if (item.CurrentState != FileState.Mkv && item.CurrentState != FileState.Downloading)
+            if (item.CurrentState != FileState.Mkv && item.CurrentState != FileState.Downloading && item.CurrentState != FileState.PendingSymlink)
             {
                 _logger.LogWarning("[MediaController] Invalid state for force symlink. CurrentState: {State}", item.CurrentState);
-                return BadRequest("Can only force symlink for items in MKV or downloading state");
+                return BadRequest("Can only force symlink for items in MKV, downloading, or pending state");
             }
 
             try
@@ -328,7 +328,7 @@ namespace Storarr.Controllers
                         try
                         {
                             var fileDeleted = false;
-                            var arrFilePath = RemapToArrPath(item.FilePath);
+                            var arrFilePath = await RemapToArrPath(item.FilePath, item);
                             if (isSonarr)
                             {
                                 if (item.SonarrId.HasValue)
@@ -667,20 +667,63 @@ namespace Storarr.Controllers
             };
         }
 
-        private static string RemapToArrPath(string path)
+        private async Task<string> RemapToArrPath(string path, MediaItem item)
         {
-            string[][] mappings = {
-                new[] { "/media/", "/data/media/" },
-                new[] { "/tv/", "/data/tv/" },
-                new[] { "/movies/", "/data/movies/" },
-            };
-
-            foreach (var mapping in mappings)
+            try
             {
-                if (path.StartsWith(mapping[0], StringComparison.OrdinalIgnoreCase))
-                    return mapping[1] + path.Substring(mapping[0].Length);
+                (string storarrPrefix, string arrPrefix)? mapping = null;
+
+                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                {
+                    var movie = await _radarrService.GetMovie(item.RadarrId.Value);
+                    if (movie?.Path != null)
+                    {
+                        mapping = ExtractPathMapping(movie.Path, path);
+                    }
+                }
+                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                {
+                    var series = await _sonarrService.GetSeries(item.SonarrId.Value);
+                    if (series?.Path != null)
+                    {
+                        mapping = ExtractPathMapping(series.Path, path);
+                    }
+                }
+
+                if (mapping != null && path.StartsWith(mapping.Value.storarrPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return mapping.Value.arrPrefix + path.Substring(mapping.Value.storarrPrefix.Length);
+                }
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[MediaController] Failed to dynamically remap path {Path}, using original", path);
+            }
+
             return path;
+        }
+
+        private static (string storarrPrefix, string arrPrefix)? ExtractPathMapping(string arrEntityPath, string storarrFilePath)
+        {
+            var arrSegments = arrEntityPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var storarrSegments = storarrFilePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            var arrLastName = arrSegments.LastOrDefault();
+            if (arrLastName == null) return null;
+
+            var storarrLastNameIdx = Array.FindIndex(storarrSegments,
+                s => s.Equals(arrLastName, StringComparison.OrdinalIgnoreCase));
+            if (storarrLastNameIdx < 0) return null;
+
+            var storarrPrefix = "/" + string.Join('/', storarrSegments.Take(storarrLastNameIdx)) + "/";
+            var arrPrefix = "/" + string.Join('/', arrSegments.Take(arrSegments.Length - 1)) + "/";
+
+            if (storarrFilePath.StartsWith(storarrPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (storarrPrefix, arrPrefix);
+            }
+
+            return null;
         }
     }
 }

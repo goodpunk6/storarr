@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Storarr.DTOs
@@ -66,6 +67,21 @@ namespace Storarr.DTOs
         public string DownloadClient3Type { get; set; } = "Sabnzbd";
         public string? DownloadClient3Url { get; set; }
         public string? DownloadClient3ApiKey { get; set; }
+
+        // Download client IDs (Sonarr/Radarr internal IDs for redirecting grabs)
+        public int? SonarrSymlinkDownloadClientId { get; set; }
+        public int? RadarrSymlinkDownloadClientId { get; set; }
+        public int? SonarrMkvDownloadClientId { get; set; }
+        public int? RadarrMkvDownloadClientId { get; set; }
+
+        // STRM Refresh Schedule
+        public bool StrmRefreshEnabled { get; set; } = true;
+        public int StrmRefreshHour { get; set; } = 4;
+        public int StrmRefreshMinute { get; set; } = 0;
+        public string StrmRefreshDayOfWeek { get; set; } = "Monday";
+        public string StrmRefreshInterval { get; set; } = "Weekly";
+        public DateTime? StrmRefreshLastRun { get; set; }
+        public DateTime? StrmRefreshNextRun { get; set; }
     }
 
     public class UpdateConfigDto
@@ -132,6 +148,19 @@ namespace Storarr.DTOs
         public string? DownloadClient3Type { get; set; }
         public string? DownloadClient3Url { get; set; }
         public string? DownloadClient3ApiKey { get; set; }
+
+        // Download client IDs (Sonarr/Radarr internal IDs for redirecting grabs)
+        public int? SonarrSymlinkDownloadClientId { get; set; }
+        public int? RadarrSymlinkDownloadClientId { get; set; }
+        public int? SonarrMkvDownloadClientId { get; set; }
+        public int? RadarrMkvDownloadClientId { get; set; }
+
+        // STRM Refresh Schedule
+        public bool? StrmRefreshEnabled { get; set; }
+        public int? StrmRefreshHour { get; set; }
+        public int? StrmRefreshMinute { get; set; }
+        public string? StrmRefreshDayOfWeek { get; set; }
+        public string? StrmRefreshInterval { get; set; }
     }
 
     public class ConnectionTestResult
@@ -145,6 +174,20 @@ namespace Storarr.DTOs
     public class TestConnectionsResponse
     {
         public List<ConnectionTestResult> Results { get; set; } = new List<ConnectionTestResult>();
+    }
+
+    public class DownloadClientsResponse
+    {
+        public List<DownloadClientOption> SonarrClients { get; set; } = new();
+        public List<DownloadClientOption> RadarrClients { get; set; } = new();
+    }
+
+    public class DownloadClientOption
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Implementation { get; set; } = string.Empty;
+        public bool Enable { get; set; }
     }
 
     public class FirstRunSetupDto

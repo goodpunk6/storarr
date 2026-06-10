@@ -150,6 +150,10 @@ export interface Config {
   downloadClient1: DownloadClientConfig
   downloadClient2: DownloadClientConfig
   downloadClient3: DownloadClientConfig
+  sonarrSymlinkDownloadClientId?: number
+  radarrSymlinkDownloadClientId?: number
+  sonarrMkvDownloadClientId?: number
+  radarrMkvDownloadClientId?: number
   // STRM Refresh Schedule
   strmRefreshEnabled: boolean
   strmRefreshHour: number

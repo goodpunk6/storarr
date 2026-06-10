@@ -241,7 +241,10 @@ namespace Storarr.Controllers
 
                 // Add tracked items that have no corresponding Sonarr episode file
                 // (e.g. .strm files where Sonarr no longer tracks the episode file)
+                // Deduplicate by season/episode — keep the tracked item with a mediaItemId
                 var unmatched = trackedItems.Where(t => !matchedTrackedIds.Contains(t.Id)).ToList();
+                var seenKeys = new HashSet<string>(episodes
+                    .Select(e => $"{e.SeasonNumber}-{e.EpisodeNumber}"));
                 foreach (var item in unmatched)
                 {
                     var seasonNum = item.SeasonNumber ?? 0;
@@ -259,6 +262,9 @@ namespace Storarr.Controllers
                             episodeNum = int.Parse(match.Groups[2].Value);
                         }
                     }
+
+                    var key = $"{seasonNum}-{episodeNum}";
+                    if (!seenKeys.Add(key)) continue;
 
                     episodes.Add(new CatalogEpisodeDto
                     {

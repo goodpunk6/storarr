@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Save, RefreshCw, Check, X, Info, Plus, Trash2, Play } from 'lucide-react'
-import { getConfig, updateConfig, testConnections, processTransitions } from '../api/client'
+import { Save, RefreshCw, Check, X, Info, Plus, Trash2, Play, Clock } from 'lucide-react'
+import { getConfig, updateConfig, testConnections, processTransitions, getDownloadClients } from '../api/client'
 import { Config, TimeUnit, DownloadClientType } from '../stores/appStore'
 
 interface ConnectionTest {
@@ -21,6 +21,8 @@ interface DownloadClientConfig {
 
 const TIME_UNITS: TimeUnit[] = ['Minutes', 'Hours', 'Days', 'Weeks', 'Months']
 const DOWNLOAD_CLIENT_TYPES: DownloadClientType[] = ['QBittorrent', 'Transmission', 'Sabnzbd']
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const STRM_REFRESH_INTERVALS = ['Daily', 'Weekly', 'Monthly', 'Yearly']
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null)
@@ -30,6 +32,10 @@ export default function Settings() {
   const [testing, setTesting] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [testResults, setTestResults] = useState<ConnectionTest[]>([])
+  const [arrDownloadClients, setArrDownloadClients] = useState<{
+    sonarrClients: Array<{ id: number; name: string; implementation: string; enable: boolean }>
+    radarrClients: Array<{ id: number; name: string; implementation: string; enable: boolean }>
+  }>({ sonarrClients: [], radarrClients: [] })
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -84,6 +90,18 @@ export default function Settings() {
             url: apiConfig.downloadClient3Url,
             apiKey: apiConfig.downloadClient3ApiKey,
           },
+          // STRM Refresh Schedule
+          strmRefreshEnabled: apiConfig.strmRefreshEnabled ?? true,
+          strmRefreshHour: apiConfig.strmRefreshHour ?? 4,
+          strmRefreshMinute: apiConfig.strmRefreshMinute ?? 0,
+          strmRefreshDayOfWeek: apiConfig.strmRefreshDayOfWeek ?? 'Monday',
+          strmRefreshInterval: apiConfig.strmRefreshInterval ?? 'Weekly',
+          strmRefreshLastRun: apiConfig.strmRefreshLastRun,
+          strmRefreshNextRun: apiConfig.strmRefreshNextRun,
+          sonarrSymlinkDownloadClientId: apiConfig.sonarrSymlinkDownloadClientId,
+          radarrSymlinkDownloadClientId: apiConfig.radarrSymlinkDownloadClientId,
+          sonarrMkvDownloadClientId: apiConfig.sonarrMkvDownloadClientId,
+          radarrMkvDownloadClientId: apiConfig.radarrMkvDownloadClientId,
         }
         setConfig(newConfig)
 
@@ -121,6 +139,13 @@ export default function Settings() {
           clients.push({ enabled: false, type: 'QBittorrent', url: '' })
         }
         setDownloadClients(clients)
+
+        try {
+          const clientsResponse = await getDownloadClients()
+          setArrDownloadClients(clientsResponse.data)
+        } catch {
+          // Silently fail - dropdowns will just show "None (use Jellyseerr)"
+        }
       } catch (error) {
         console.error('Failed to fetch config:', error)
       } finally {
@@ -159,6 +184,16 @@ export default function Settings() {
         sonarrApiKey: config.sonarrApiKey,
         radarrUrl: config.radarrUrl,
         radarrApiKey: config.radarrApiKey,
+        // STRM Refresh Schedule
+        strmRefreshEnabled: config.strmRefreshEnabled,
+        strmRefreshHour: config.strmRefreshHour,
+        strmRefreshMinute: config.strmRefreshMinute,
+        strmRefreshDayOfWeek: config.strmRefreshDayOfWeek,
+        strmRefreshInterval: config.strmRefreshInterval,
+        sonarrSymlinkDownloadClientId: config.sonarrSymlinkDownloadClientId ?? 0,
+        radarrSymlinkDownloadClientId: config.radarrSymlinkDownloadClientId ?? 0,
+        sonarrMkvDownloadClientId: config.sonarrMkvDownloadClientId ?? 0,
+        radarrMkvDownloadClientId: config.radarrMkvDownloadClientId ?? 0,
       }
 
       // Map download clients back to fixed slots, clear unused slots
@@ -387,6 +422,117 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* STRM Refresh Schedule */}
+          <div className="bg-arr-card rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Clock size={24} className="text-arr-accent" />
+                <div>
+                  <h3 className="text-lg font-semibold">STRM Refresh Schedule</h3>
+                  <p className="text-sm text-arr-muted">Automatically check and refresh expired STRM files</p>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.strmRefreshEnabled ?? true}
+                  onChange={(e) => updateConfigField('strmRefreshEnabled', e.target.checked)}
+                  className="w-4 h-4 rounded border-arr-primary"
+                />
+                <span className="text-sm">Enabled</span>
+              </label>
+            </div>
+
+            {config.strmRefreshEnabled !== false && (
+              <div className="space-y-4">
+                <div className="flex items-start gap-2 p-3 bg-arr-bg rounded-lg">
+                  <Info size={20} className="text-arr-accent mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-arr-muted">
+                    STRM files contain URLs to streaming sources that can expire over time.
+                    This scheduled task checks each STRM file's URL and deletes expired ones
+                    so the *arr stack can re-download fresh copies.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-arr-muted mb-2">Interval</label>
+                    <select
+                      value={config.strmRefreshInterval || 'Weekly'}
+                      onChange={(e) => updateConfigField('strmRefreshInterval', e.target.value)}
+                      className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                    >
+                      {STRM_REFRESH_INTERVALS.map(interval => (
+                        <option key={interval} value={interval}>{interval}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-arr-muted mb-2">Day of Week</label>
+                    <select
+                      value={config.strmRefreshDayOfWeek || 'Monday'}
+                      onChange={(e) => updateConfigField('strmRefreshDayOfWeek', e.target.value)}
+                      className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                      disabled={config.strmRefreshInterval === 'Daily'}
+                    >
+                      {DAYS_OF_WEEK.map(day => (
+                        <option key={day} value={day}>{day}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-arr-muted mb-2">Time</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={config.strmRefreshHour ?? 4}
+                        onChange={(e) => updateConfigField('strmRefreshHour', parseInt(e.target.value) || 0)}
+                        className="w-20 bg-arr-bg border border-arr-primary rounded-lg px-3 py-2 focus:outline-none focus:border-arr-accent"
+                        placeholder="Hour"
+                      />
+                      <span className="text-arr-muted self-center">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={config.strmRefreshMinute ?? 0}
+                        onChange={(e) => updateConfigField('strmRefreshMinute', parseInt(e.target.value) || 0)}
+                        className="w-20 bg-arr-bg border border-arr-primary rounded-lg px-3 py-2 focus:outline-none focus:border-arr-accent"
+                        placeholder="Min"
+                      />
+                    </div>
+                    <p className="text-xs text-arr-muted mt-1">24-hour format (UTC)</p>
+                  </div>
+                </div>
+
+                {(config.strmRefreshLastRun || config.strmRefreshNextRun) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-arr-primary">
+                    <div>
+                      <span className="text-sm text-arr-muted">Last Run:</span>
+                      <p className="text-sm font-medium">
+                        {config.strmRefreshLastRun
+                          ? new Date(config.strmRefreshLastRun).toLocaleString()
+                          : 'Never'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-sm text-arr-muted">Next Run:</span>
+                      <p className="text-sm font-medium">
+                        {config.strmRefreshNextRun
+                          ? new Date(config.strmRefreshNextRun).toLocaleString()
+                          : 'Calculating...'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Media Library */}
@@ -720,6 +866,96 @@ export default function Settings() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Symlink Download Client */}
+          <div className="bg-arr-card rounded-lg p-6">
+            <div className="flex items-start gap-2 mb-4">
+              <Info size={20} className="text-arr-accent mt-0.5" />
+              <p className="text-sm text-arr-muted">
+                When converting MKV to symlink, Storarr can bypass Jellyseerr and directly grab releases from
+                Sonarr/Radarr using a specific download client (e.g. NZBdav for .strm delivery).
+                If not configured, Jellyseerr is used as fallback.
+              </p>
+            </div>
+            <h3 className="text-lg font-semibold mb-4">Symlink Download Client</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-arr-muted mb-2">Sonarr Symlink Client</label>
+                <select
+                  value={config.sonarrSymlinkDownloadClientId ?? 0}
+                  onChange={(e) => updateConfigField('sonarrSymlinkDownloadClientId', parseInt(e.target.value) || undefined)}
+                  className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                >
+                  <option value={0}>None (use Jellyseerr)</option>
+                  {arrDownloadClients.sonarrClients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.implementation}) {!client.enable ? '- Disabled' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-arr-muted mb-2">Radarr Symlink Client</label>
+                <select
+                  value={config.radarrSymlinkDownloadClientId ?? 0}
+                  onChange={(e) => updateConfigField('radarrSymlinkDownloadClientId', parseInt(e.target.value) || undefined)}
+                  className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                >
+                  <option value={0}>None (use Jellyseerr)</option>
+                  {arrDownloadClients.radarrClients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.implementation}) {!client.enable ? '- Disabled' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* MKV Download Client */}
+          <div className="bg-arr-card rounded-lg p-6">
+            <div className="flex items-start gap-2 mb-4">
+              <Info size={20} className="text-arr-accent mt-0.5" />
+              <p className="text-sm text-arr-muted">
+                When converting symlink to MKV, Storarr will search for releases and grab them using a specific
+                download client (e.g. SABnzbd or qBittorrent for full MKV downloads). If not configured, the Arr's
+                default client selection is used.
+              </p>
+            </div>
+            <h3 className="text-lg font-semibold mb-4">MKV Download Client</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-arr-muted mb-2">Sonarr MKV Client</label>
+                <select
+                  value={config.sonarrMkvDownloadClientId ?? 0}
+                  onChange={(e) => updateConfigField('sonarrMkvDownloadClientId', parseInt(e.target.value) || undefined)}
+                  className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                >
+                  <option value={0}>None (use Arr default)</option>
+                  {arrDownloadClients.sonarrClients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.implementation}) {!client.enable ? '- Disabled' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-arr-muted mb-2">Radarr MKV Client</label>
+                <select
+                  value={config.radarrMkvDownloadClientId ?? 0}
+                  onChange={(e) => updateConfigField('radarrMkvDownloadClientId', parseInt(e.target.value) || undefined)}
+                  className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+                >
+                  <option value={0}>None (use Arr default)</option>
+                  {arrDownloadClients.radarrClients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.implementation}) {!client.enable ? '- Disabled' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>
