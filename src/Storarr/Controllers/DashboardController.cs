@@ -42,11 +42,12 @@ namespace Storarr.Controllers
                 var mkvCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Mkv);
                 var downloadingCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Downloading);
                 var pendingSymlinkCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.PendingSymlink);
-                var totalItems = symlinkCount + mkvCount + downloadingCount + pendingSymlinkCount;
+                var errorCount = await _dbContext.MediaItems.AsNoTracking().CountAsync(m => m.CurrentState == FileState.Error);
+                var totalItems = symlinkCount + mkvCount + downloadingCount + pendingSymlinkCount + errorCount;
                 var totalSizeBytes = await _dbContext.MediaItems.AsNoTracking().SumAsync(m => m.FileSize ?? 0);
 
-                _logger.LogDebug("[DashboardController] State breakdown - Symlinks: {Symlink}, MKVs: {Mkv}, Downloading: {Downloading}, Pending: {Pending}",
-                    symlinkCount, mkvCount, downloadingCount, pendingSymlinkCount);
+                _logger.LogDebug("[DashboardController] State breakdown - Symlinks: {Symlink}, MKVs: {Mkv}, Downloading: {Downloading}, Pending: {Pending}, Errors: {Errors}",
+                    symlinkCount, mkvCount, downloadingCount, pendingSymlinkCount, errorCount);
 
                 var upcomingTransitions = await _transitionService.GetUpcomingTransitions(10);
                 _logger.LogDebug("[DashboardController] Found {Count} upcoming transitions", upcomingTransitions.Count());
@@ -58,6 +59,7 @@ namespace Storarr.Controllers
                     MkvCount = mkvCount,
                     DownloadingCount = downloadingCount,
                     PendingSymlinkCount = pendingSymlinkCount,
+                    ErrorCount = errorCount,
                     TotalSizeBytes = totalSizeBytes,
                     UpcomingTransitions = upcomingTransitions
                         .Select(t => new TransitionDto
