@@ -76,6 +76,8 @@ namespace Storarr
                     AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvRootFolder", "TEXT NULL");
                     AddColumnIfNotExists(dbContext, "Configs", "SonarrSymlinkDownloadClientId", "INTEGER NULL");
                     AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkDownloadClientId", "INTEGER NULL");
+                    AddColumnIfNotExists(dbContext, "MediaItems", "ErrorMessage", "TEXT NULL");
+                    AddColumnIfNotExists(dbContext, "MediaItems", "ErrorAt", "TEXT NULL");
                 }
 
                 // Always ensure new columns exist regardless of migration path
@@ -83,6 +85,8 @@ namespace Storarr
                 AddColumnIfNotExists(dbContext, "Configs", "RadarrSymlinkDownloadClientId", "INTEGER NULL");
                 AddColumnIfNotExists(dbContext, "Configs", "SonarrMkvDownloadClientId", "INTEGER NULL");
                 AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvDownloadClientId", "INTEGER NULL");
+                AddColumnIfNotExists(dbContext, "MediaItems", "ErrorMessage", "TEXT NULL");
+                AddColumnIfNotExists(dbContext, "MediaItems", "ErrorAt", "TEXT NULL");
             }
 
             host.Run();
