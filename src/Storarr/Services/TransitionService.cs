@@ -638,8 +638,26 @@ namespace Storarr.Services
                 }
                 else if (pendingAge.TotalHours >= 2)
                 {
-                    _logger.LogWarning("[TransitionService] PendingSymlink item {Title} has been pending for {Hours:F1} hours - giving up on automatic retry",
+                    _logger.LogWarning("[TransitionService] PendingSymlink item {Title} has been pending for {Hours:F1} hours - auto-reverting to Error state",
                         pendingItem.Title, pendingAge.TotalHours);
+
+                    pendingItem.CurrentState = FileState.Error;
+                    pendingItem.ErrorMessage = $"PendingSymlink timed out after {pendingAge.TotalHours:F1} hours - no symlink appeared at {pendingItem.FilePath}";
+                    pendingItem.ErrorAt = DateTime.UtcNow;
+                    pendingItem.PendingSymlinkAt = null;
+                    pendingItem.StateChangedAt = DateTime.UtcNow;
+
+                    try
+                    {
+                        await _dbContext.SaveChangesAsync();
+                        await LogActivity(pendingItem.Id, "StaleReaper", FileState.PendingSymlink, FileState.Error,
+                            $"Auto-reverted: {pendingItem.ErrorMessage}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[TransitionService] Failed to save error revert for {Title}", pendingItem.Title);
+                        _dbContext.Entry(pendingItem).State = Microsoft.EntityFrameworkCore.EntityState.Unchanged;
+                    }
                 }
             }
             await _dbContext.SaveChangesAsync();
