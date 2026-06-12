@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Link2, HardDrive, Download, Clock } from 'lucide-react'
+import { Link2, HardDrive, Download, Clock, AlertTriangle } from 'lucide-react'
 import { getDashboard } from '../api/client'
 import StatCard from '../components/StatCard'
 import TransitionRow from '../components/TransitionRow'
@@ -12,6 +12,7 @@ interface DashboardData {
   mkvCount: number
   downloadingCount: number
   pendingSymlinkCount: number
+  errorCount: number
   totalSizeBytes: number
   upcomingTransitions: Transition[]
 }
@@ -31,6 +32,7 @@ export default function Dashboard() {
           mkvCount: response.data.mkvCount,
           downloadingCount: response.data.downloadingCount,
           pendingSymlinkCount: response.data.pendingSymlinkCount,
+          errorCount: response.data.errorCount,
           upcomingTransitions: response.data.upcomingTransitions,
         })
       } catch (error) {
@@ -64,7 +66,7 @@ export default function Dashboard() {
       <h2 className="text-2xl font-bold">Dashboard</h2>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="SYMLINK"
           value={data?.symlinkCount ?? 0}
@@ -87,6 +89,12 @@ export default function Dashboard() {
           title="PENDING"
           value={data?.pendingSymlinkCount ?? 0}
           icon={<Clock size={48} />}
+          color="bg-arr-card"
+        />
+        <StatCard
+          title="ERRORS"
+          value={data?.errorCount ?? 0}
+          icon={<AlertTriangle size={48} />}
           color="bg-arr-card"
         />
       </div>

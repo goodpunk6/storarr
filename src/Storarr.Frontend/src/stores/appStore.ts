@@ -4,7 +4,7 @@ export interface MediaItem {
   id: number
   title: string
   type: 'Movie' | 'Series' | 'Anime'
-  currentState: 'Symlink' | 'Mkv' | 'Downloading' | 'PendingSymlink'
+  currentState: 'Symlink' | 'Mkv' | 'Downloading' | 'PendingSymlink' | 'Error'
   filePath: string
   lastWatchedAt?: string
   seasonNumber?: number
@@ -170,12 +170,14 @@ interface AppState {
   mkvCount: number
   downloadingCount: number
   pendingSymlinkCount: number
+  errorCount: number
   upcomingTransitions: Transition[]
   setDashboardData: (data: {
     symlinkCount: number
     mkvCount: number
     downloadingCount: number
     pendingSymlinkCount: number
+    errorCount: number
     upcomingTransitions: Transition[]
   }) => void
 
@@ -210,6 +212,7 @@ export const useAppStore = create<AppState>((set) => ({
   mkvCount: 0,
   downloadingCount: 0,
   pendingSymlinkCount: 0,
+  errorCount: 0,
   upcomingTransitions: [],
   setDashboardData: (data) => set(data),
 

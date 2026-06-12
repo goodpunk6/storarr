@@ -29,6 +29,8 @@ function getStateColor(state: string): string {
       return 'bg-blue-500/20 text-blue-400'
     case 'pendingsymlink':
       return 'bg-arr-primary text-arr-muted'
+    case 'error':
+      return 'bg-red-500/20 text-red-400'
     default:
       return 'bg-arr-primary text-arr-muted'
   }

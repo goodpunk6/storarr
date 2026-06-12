@@ -53,6 +53,8 @@ export const toggleExcluded = (id: number) => api.post(`/media/${id}/toggle-excl
 export const setExcluded = (id: number, isExcluded: boolean) => api.put(`/media/${id}/excluded`, { isExcluded })
 export const deleteMedia = (id: number) => api.delete(`/media/${id}`)
 export const clearGhostPending = () => api.post('/media/clear-ghost-pending')
+export const retryTransition = (id: number) => api.post(`/media/${id}/retry-transition`)
+export const clearErrors = (mode: 'retry' | 'delete') => api.post('/media/clear-errors', { mode })
 
 export const manageMedia = async (
   itemIds: number[],

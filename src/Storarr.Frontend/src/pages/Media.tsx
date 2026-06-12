@@ -33,6 +33,7 @@ export default function Media() {
           <option value="Mkv">MKV</option>
           <option value="Downloading">Downloading</option>
           <option value="PendingSymlink">Pending Symlink</option>
+          <option value="Error">Error</option>
         </select>
         <select
           value={typeFilter}
