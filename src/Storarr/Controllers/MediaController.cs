@@ -219,6 +219,64 @@ namespace Storarr.Controllers
             }
         }
 
+        [HttpPost("{id}/retry-transition")]
+        public async Task<ActionResult> RetryTransition(int id)
+        {
+            _logger.LogDebug("[MediaController] RetryTransition called for ID: {Id}", id);
+
+            var item = await _dbContext.MediaItems.FindAsync(id);
+            if (item == null)
+            {
+                return NotFound();
+            }
+
+            if (item.CurrentState != FileState.Error)
+            {
+                return BadRequest("Can only retry transition for items in Error state");
+            }
+
+            try
+            {
+                _logger.LogInformation("[MediaController] Retrying transition for {Title} - resetting to PendingSymlink", item.Title);
+
+                var previousState = item.CurrentState;
+                item.CurrentState = FileState.PendingSymlink;
+                item.PendingSymlinkAt = DateTime.UtcNow;
+                item.StateChangedAt = DateTime.UtcNow;
+                item.ErrorMessage = null;
+                item.ErrorAt = null;
+
+                await _dbContext.SaveChangesAsync();
+
+                await LogActivity(item.Id, "RetryTransition", previousState, FileState.PendingSymlink,
+                    "Manually retried from Error state");
+
+                // Trigger search in the arr to try to get a new download
+                try
+                {
+                    if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                    {
+                        await _radarrService.TriggerSearch(item.RadarrId.Value);
+                    }
+                    else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                    {
+                        await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[MediaController] TriggerSearch failed during retry for {Title}", item.Title);
+                }
+
+                return Ok(new { message = "Transition retried", item.Id, item.CurrentState });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MediaController] Error in RetryTransition for {Title}", item.Title);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         [HttpPost("{id}/toggle-excluded")]
         public async Task<ActionResult> ToggleExcluded(int id)
         {
@@ -573,6 +631,69 @@ namespace Storarr.Controllers
             return Ok(new { cleared, total = pendingItems.Count });
         }
 
+        [HttpPost("clear-errors")]
+        public async Task<ActionResult> ClearErrors([FromBody] ClearErrorsDto dto)
+        {
+            _logger.LogDebug("[MediaController] ClearErrors called with mode: {Mode}", dto.Mode);
+
+            var errorItems = await _dbContext.MediaItems
+                .Where(m => m.CurrentState == FileState.Error)
+                .ToListAsync();
+
+            _logger.LogDebug("[MediaController] Found {Count} Error items", errorItems.Count);
+
+            if (dto.Mode == "delete")
+            {
+                _dbContext.MediaItems.RemoveRange(errorItems);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("[MediaController] Deleted {Count} Error items", errorItems.Count);
+                return Ok(new { mode = "delete", cleared = errorItems.Count });
+            }
+            else if (dto.Mode == "retry")
+            {
+                int retried = 0;
+                foreach (var item in errorItems)
+                {
+                    item.CurrentState = FileState.PendingSymlink;
+                    item.PendingSymlinkAt = DateTime.UtcNow;
+                    item.StateChangedAt = DateTime.UtcNow;
+                    item.ErrorMessage = null;
+                    item.ErrorAt = null;
+
+                    _dbContext.ActivityLogs.Add(new ActivityLog
+                    {
+                        MediaItemId = item.Id,
+                        Action = "ClearErrors",
+                        FromState = FileState.Error.ToString(),
+                        ToState = FileState.PendingSymlink.ToString(),
+                        Details = "Bulk retry from Error state",
+                        Timestamp = DateTime.UtcNow
+                    });
+
+                    retried++;
+
+                    try
+                    {
+                        if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                            await _radarrService.TriggerSearch(item.RadarrId.Value);
+                        else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                            await _sonarrService.TriggerSearch(item.SonarrId.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[MediaController] TriggerSearch failed for {Title} during clear-errors", item.Title);
+                    }
+                }
+
+                await _dbContext.SaveChangesAsync();
+                _logger.LogInformation("[MediaController] Retried {Count} Error items", retried);
+                return Ok(new { mode = "retry", cleared = retried });
+            }
+
+            return BadRequest("Invalid mode. Use 'retry' or 'delete'.");
+        }
+
         [HttpPost]
         public async Task<ActionResult<MediaItemDto>> CreateMedia([FromBody] CreateMediaItemDto dto)
         {
@@ -728,6 +849,20 @@ namespace Storarr.Controllers
             }
 
             return null;
+        }
+
+        private async Task LogActivity(int mediaItemId, string action, FileState fromState, FileState toState, string? details = null)
+        {
+            _dbContext.ActivityLogs.Add(new ActivityLog
+            {
+                MediaItemId = mediaItemId,
+                Action = action,
+                FromState = fromState.ToString(),
+                ToState = toState.ToString(),
+                Details = details,
+                Timestamp = DateTime.UtcNow
+            });
+            await _dbContext.SaveChangesAsync();
         }
     }
 }

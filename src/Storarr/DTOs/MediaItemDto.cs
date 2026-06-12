@@ -66,4 +66,9 @@ namespace Storarr.DTOs
     {
         public bool IsExcluded { get; set; }
     }
+
+    public class ClearErrorsDto
+    {
+        public string Mode { get; set; } = "retry"; // "retry" or "delete"
+    }
 }
