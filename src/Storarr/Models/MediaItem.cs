@@ -53,5 +53,11 @@ namespace Storarr.Models
 
         // Timestamp when item entered PendingSymlink state (for stale detection)
         public DateTime? PendingSymlinkAt { get; set; }
+
+        // Error state tracking
+        [MaxLength(500)]
+        public string? ErrorMessage { get; set; }
+
+        public DateTime? ErrorAt { get; set; }
     }
 }
