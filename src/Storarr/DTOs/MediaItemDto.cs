@@ -27,6 +27,8 @@ namespace Storarr.DTOs
         public int? DaysUntilTransition { get; set; }
         public bool IsOverdue { get; set; }
         public string? TransitionType { get; set; }
+        public string? ErrorMessage { get; set; }
+        public DateTime? ErrorAt { get; set; }
     }
 
     public class CreateMediaItemDto
@@ -57,6 +59,7 @@ namespace Storarr.DTOs
         public bool IsExcluded { get; set; }
         public int? DaysUntilTransition { get; set; }
         public bool IsOverdue { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
     public class SetExcludedDto

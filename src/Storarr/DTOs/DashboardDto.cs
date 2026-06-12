@@ -10,6 +10,7 @@ namespace Storarr.DTOs
         public int MkvCount { get; set; }
         public int DownloadingCount { get; set; }
         public int PendingSymlinkCount { get; set; }
+        public int ErrorCount { get; set; }
         public long TotalSizeBytes { get; set; }
         public List<TransitionDto> UpcomingTransitions { get; set; } = new List<TransitionDto>();
     }
