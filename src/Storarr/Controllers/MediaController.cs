@@ -90,7 +90,8 @@ namespace Storarr.Controllers
                         FileSize = m.FileSize,
                         IsExcluded = m.IsExcluded,
                         DaysUntilTransition = CalculateDaysUntilTransition(m, config, now),
-                        IsOverdue = IsTransitionOverdue(m, config, now)
+                        IsOverdue = IsTransitionOverdue(m, config, now),
+                        ErrorMessage = m.ErrorMessage
                     })
                     .ToListAsync();
 
@@ -142,7 +143,9 @@ namespace Storarr.Controllers
                     IsExcluded = item.IsExcluded,
                     DaysUntilTransition = CalculateDaysUntilTransition(item, config, now),
                     IsOverdue = IsTransitionOverdue(item, config, now),
-                    TransitionType = GetTransitionType(item, config)
+                    TransitionType = GetTransitionType(item, config),
+                    ErrorMessage = item.ErrorMessage,
+                    ErrorAt = item.ErrorAt
                 };
 
                 return Ok(dto);
@@ -197,10 +200,10 @@ namespace Storarr.Controllers
                 return NotFound();
             }
 
-            if (item.CurrentState != FileState.Mkv && item.CurrentState != FileState.Downloading && item.CurrentState != FileState.PendingSymlink)
+            if (item.CurrentState != FileState.Mkv && item.CurrentState != FileState.Downloading && item.CurrentState != FileState.PendingSymlink && item.CurrentState != FileState.Error)
             {
                 _logger.LogWarning("[MediaController] Invalid state for force symlink. CurrentState: {State}", item.CurrentState);
-                return BadRequest("Can only force symlink for items in MKV, downloading, or pending state");
+                return BadRequest("Can only force symlink for items in MKV, downloading, pending, or error state");
             }
 
             try
@@ -510,7 +513,7 @@ namespace Storarr.Controllers
             _logger.LogDebug("[MediaController] ClearGhostPending called");
 
             var pendingItems = await _dbContext.MediaItems
-                .Where(m => m.CurrentState == FileState.PendingSymlink || m.CurrentState == FileState.Downloading)
+                .Where(m => m.CurrentState == FileState.PendingSymlink || m.CurrentState == FileState.Downloading || m.CurrentState == FileState.Error)
                 .ToListAsync();
 
             _logger.LogDebug("[MediaController] Found {Count} PendingSymlink items", pendingItems.Count);
@@ -663,6 +666,7 @@ namespace Storarr.Controllers
                 FileState.Mkv => "ToSymlink",
                 FileState.Downloading => "Downloading",
                 FileState.PendingSymlink => "AwaitingSymlink",
+                FileState.Error => "Error",
                 _ => null
             };
         }
