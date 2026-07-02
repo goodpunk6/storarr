@@ -16,6 +16,7 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
   const [removeFromArr, setRemoveFromArr] = useState(false)
   const [unmonitor, setUnmonitor] = useState(false)
   const [reMonitor, setReMonitor] = useState(false)
+  const [addToExclusions, setAddToExclusions] = useState(false)
   const [actionState, setActionState] = useState<ActionState>('idle')
   const [results, setResults] = useState<ManageMediaItemResult[]>([])
 
@@ -31,8 +32,8 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
     .map(v => v.ep.mediaItemId)
     .filter((id): id is number => id != null)
 
-  const hasAction = deleteFiles || removeFromArr || unmonitor || reMonitor
-  const monitorDisabled = removeFromArr
+  const hasAction = deleteFiles || removeFromArr || unmonitor || reMonitor || addToExclusions
+  const monitorDisabled = removeFromArr || addToExclusions
 
   const handleUnmonitor = (checked: boolean) => {
     setUnmonitor(checked)
@@ -49,6 +50,7 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
     if (removeFromArr) parts.push('remove from Sonarr/Radarr')
     if (unmonitor) parts.push('unmonitor')
     if (reMonitor) parts.push('set to monitored')
+    if (addToExclusions) parts.push('exclude from Storarr')
     if (parts.length === 0) return 'Select an action'
     if (parts.length === 1) return parts[0]
     const last = parts.pop()
@@ -63,6 +65,7 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
         removeFromArr,
         unmonitor,
         reMonitor,
+        addToExclusions,
       })
       setResults(result.results)
       setActionState('done')
@@ -77,6 +80,7 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
     setRemoveFromArr(false)
     setUnmonitor(false)
     setReMonitor(false)
+    setAddToExclusions(false)
     setActionState('idle')
     setResults([])
     if (actionState === 'done') {
@@ -123,12 +127,19 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
                 <span className="text-arr-text">Remove from Sonarr/Radarr</span>
               </label>
 
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={addToExclusions} onChange={(e) => setAddToExclusions(e.target.checked)}
+                  className="w-4 h-4 rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent" />
+                <span className="text-arr-text">Add to Exclusions</span>
+                <span className="text-xs text-arr-text/40">(stop managing entirely — blocks future scans)</span>
+              </label>
+
               <label className={`flex items-center gap-3 ${monitorDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
                 <input type="checkbox" checked={unmonitor} onChange={(e) => handleUnmonitor(e.target.checked)}
                   disabled={monitorDisabled}
                   className="w-4 h-4 rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent" />
                 <span className="text-arr-text">Set to Unmonitored</span>
-                {monitorDisabled && <span className="text-xs text-arr-text/40">(not available when removing)</span>}
+                {monitorDisabled && <span className="text-xs text-arr-text/40">(not available when removing/excluding)</span>}
               </label>
 
               <label className={`flex items-center gap-3 ${monitorDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
@@ -136,7 +147,7 @@ export default function ManageModal({ open, selectedItems, onCancel, onComplete 
                   disabled={monitorDisabled}
                   className="w-4 h-4 rounded border-arr-primary bg-arr-bg text-arr-accent focus:ring-arr-accent" />
                 <span className="text-arr-text">Set to Monitored</span>
-                {monitorDisabled && <span className="text-xs text-arr-text/40">(not available when removing)</span>}
+                {monitorDisabled && <span className="text-xs text-arr-text/40">(not available when removing/excluding)</span>}
               </label>
             </div>
           )}

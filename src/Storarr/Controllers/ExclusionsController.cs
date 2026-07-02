@@ -19,17 +19,20 @@ namespace Storarr.Controllers
         private readonly StorarrDbContext _dbContext;
         private readonly ISonarrService _sonarrService;
         private readonly IRadarrService _radarrService;
+        private readonly IExclusionService _exclusionService;
         private readonly ILogger<ExclusionsController> _logger;
 
         public ExclusionsController(
             StorarrDbContext dbContext,
             ISonarrService sonarrService,
             IRadarrService radarrService,
+            IExclusionService exclusionService,
             ILogger<ExclusionsController> logger)
         {
             _dbContext = dbContext;
             _sonarrService = sonarrService;
             _radarrService = radarrService;
+            _exclusionService = exclusionService;
             _logger = logger;
         }
 
@@ -94,7 +97,7 @@ namespace Storarr.Controllers
                 }
 
                 // Count how many media items would be/were affected
-                int removedCount = await CountMatchingMediaItems(item);
+                int removedCount = await _exclusionService.CountMatchingMediaItemsAsync(item);
 
                 var dto = new ExcludedItemDto
                 {
@@ -218,7 +221,7 @@ namespace Storarr.Controllers
                 _dbContext.ExcludedItems.Add(exclusion);
 
                 // Remove any existing media items that match this exclusion
-                int removedCount = await RemoveMatchingMediaItems(exclusion);
+                int removedCount = await _exclusionService.RemoveMatchingMediaItemsAsync(exclusion);
 
                 await _dbContext.SaveChangesAsync();
 
@@ -346,64 +349,19 @@ namespace Storarr.Controllers
 
             try
             {
-                // Find matching media items to get the title and other IDs
-                IQueryable<MediaItem> matchingItems;
-                MediaType itemType;
+                var result = await _exclusionService.ExcludeByArrIdAsync(dto);
 
-                if (dto.SonarrId.HasValue)
-                {
-                    matchingItems = _dbContext.MediaItems.Where(m => m.SonarrId == dto.SonarrId.Value);
-                    itemType = MediaType.Series;
-                }
-                else if (dto.RadarrId.HasValue)
-                {
-                    matchingItems = _dbContext.MediaItems.Where(m => m.RadarrId == dto.RadarrId.Value);
-                    itemType = MediaType.Movie;
-                }
-                else
-                {
-                    return BadRequest(new { error = "Either SonarrId or RadarrId is required" });
-                }
+                if (result.Error != null)
+                    return BadRequest(new { error = result.Error });
 
-                var firstItem = await matchingItems.FirstOrDefaultAsync();
-                if (firstItem == null && string.IsNullOrEmpty(dto.Title))
-                {
-                    return BadRequest(new { error = "No matching media items found and no title provided" });
-                }
-
-                // Check if already excluded
-                var existingExclusion = await _dbContext.ExcludedItems
-                    .FirstOrDefaultAsync(e =>
-                        (dto.SonarrId.HasValue && e.SonarrId == dto.SonarrId.Value) ||
-                        (dto.RadarrId.HasValue && e.RadarrId == dto.RadarrId.Value));
-
-                if (existingExclusion != null)
-                {
-                    return BadRequest(new { error = "This item is already excluded", exclusionId = existingExclusion.Id });
-                }
-
-                var exclusion = new ExcludedItem
-                {
-                    Title = dto.Title ?? firstItem?.Title ?? "Unknown",
-                    Type = dto.Type ?? firstItem?.Type ?? itemType,
-                    SonarrId = dto.SonarrId,
-                    RadarrId = dto.RadarrId,
-                    TmdbId = dto.TmdbId ?? firstItem?.TmdbId,
-                    TvdbId = dto.TvdbId ?? firstItem?.TvdbId,
-                    Reason = dto.Reason,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _dbContext.ExcludedItems.Add(exclusion);
-
-                // Remove matching media items
-                int removedCount = await matchingItems.CountAsync();
-                _dbContext.MediaItems.RemoveRange(matchingItems);
+                if (result.AlreadyExcluded)
+                    return BadRequest(new { error = "This item is already excluded", exclusionId = result.ExistingExclusionId });
 
                 await _dbContext.SaveChangesAsync();
 
+                var exclusion = result.Exclusion!;
                 _logger.LogInformation("[ExclusionsController] Excluded {Title} and removed {Count} media items",
-                    exclusion.Title, removedCount);
+                    exclusion.Title, result.RemovedMediaCount);
 
                 return Ok(new ExcludedItemDto
                 {
@@ -416,7 +374,7 @@ namespace Storarr.Controllers
                     RadarrId = exclusion.RadarrId,
                     Reason = exclusion.Reason,
                     CreatedAt = exclusion.CreatedAt,
-                    RemovedMediaCount = removedCount
+                    RemovedMediaCount = result.RemovedMediaCount
                 });
             }
             catch (Exception ex)
@@ -436,62 +394,5 @@ namespace Storarr.Controllers
                     (dto.TvdbId.HasValue && e.TvdbId == dto.TvdbId.Value));
         }
 
-        private async Task<int> RemoveMatchingMediaItems(ExcludedItem exclusion)
-        {
-            IQueryable<MediaItem> matchingItems = _dbContext.MediaItems.Where(m => false);
-
-            if (exclusion.SonarrId.HasValue)
-            {
-                matchingItems = _dbContext.MediaItems.Where(m => m.SonarrId == exclusion.SonarrId);
-            }
-            else if (exclusion.RadarrId.HasValue)
-            {
-                matchingItems = _dbContext.MediaItems.Where(m => m.RadarrId == exclusion.RadarrId);
-            }
-            else if (exclusion.TmdbId.HasValue)
-            {
-                matchingItems = _dbContext.MediaItems.Where(m => m.TmdbId == exclusion.TmdbId);
-            }
-            else if (exclusion.TvdbId.HasValue)
-            {
-                matchingItems = _dbContext.MediaItems.Where(m => m.TvdbId == exclusion.TvdbId);
-            }
-
-            int count = await matchingItems.CountAsync();
-            _dbContext.MediaItems.RemoveRange(matchingItems);
-            return count;
-        }
-
-        private async Task<int> CountMatchingMediaItems(ExcludedItem exclusion)
-        {
-            if (exclusion.SonarrId.HasValue)
-            {
-                return await _dbContext.MediaItems.CountAsync(m => m.SonarrId == exclusion.SonarrId);
-            }
-            if (exclusion.RadarrId.HasValue)
-            {
-                return await _dbContext.MediaItems.CountAsync(m => m.RadarrId == exclusion.RadarrId);
-            }
-            if (exclusion.TmdbId.HasValue)
-            {
-                return await _dbContext.MediaItems.CountAsync(m => m.TmdbId == exclusion.TmdbId);
-            }
-            if (exclusion.TvdbId.HasValue)
-            {
-                return await _dbContext.MediaItems.CountAsync(m => m.TvdbId == exclusion.TvdbId);
-            }
-            return 0;
-        }
-    }
-
-    public class ExcludeByArrIdDto
-    {
-        public int? SonarrId { get; set; }
-        public int? RadarrId { get; set; }
-        public int? TmdbId { get; set; }
-        public int? TvdbId { get; set; }
-        public string? Title { get; set; }
-        public MediaType? Type { get; set; }
-        public string? Reason { get; set; }
     }
 }

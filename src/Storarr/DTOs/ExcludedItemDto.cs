@@ -42,4 +42,15 @@ namespace Storarr.DTOs
         public string? Reason { get; set; }
         public DateTime CreatedAt { get; set; }
     }
+
+    public class ExcludeByArrIdDto
+    {
+        public int? SonarrId { get; set; }
+        public int? RadarrId { get; set; }
+        public int? TmdbId { get; set; }
+        public int? TvdbId { get; set; }
+        public string? Title { get; set; }
+        public MediaType? Type { get; set; }
+        public string? Reason { get; set; }
+    }
 }

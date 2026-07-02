@@ -22,6 +22,7 @@ namespace Storarr.Controllers
         private readonly ILogger<MediaController> _logger;
         private readonly ISonarrService _sonarrService;
         private readonly IRadarrService _radarrService;
+        private readonly IExclusionService _exclusionService;
 
         public MediaController(
             StorarrDbContext dbContext,
@@ -29,7 +30,8 @@ namespace Storarr.Controllers
             IFileManagementService fileService,
             ILogger<MediaController> logger,
             ISonarrService sonarrService,
-            IRadarrService radarrService)
+            IRadarrService radarrService,
+            IExclusionService exclusionService)
         {
             _dbContext = dbContext;
             _transitionService = transitionService;
@@ -37,6 +39,7 @@ namespace Storarr.Controllers
             _logger = logger;
             _sonarrService = sonarrService;
             _radarrService = radarrService;
+            _exclusionService = exclusionService;
         }
 
         [HttpGet]
@@ -353,16 +356,41 @@ namespace Storarr.Controllers
             if (request.ItemIds == null || request.ItemIds.Count == 0)
                 return BadRequest("No items selected");
 
-            if (!request.DeleteFiles && !request.RemoveFromArr && !request.Unmonitor && !request.ReMonitor)
+            if (!request.DeleteFiles && !request.RemoveFromArr && !request.Unmonitor && !request.ReMonitor && !request.AddToExclusions)
                 return BadRequest("At least one action must be selected");
 
             if (request.RemoveFromArr && (request.Unmonitor || request.ReMonitor))
                 return BadRequest("Cannot combine 'remove from Sonarr/Radarr' with monitor state changes");
 
+            if (request.AddToExclusions && (request.Unmonitor || request.ReMonitor))
+                return BadRequest("Cannot combine 'add to exclusions' with monitor state changes");
+
             if (request.Unmonitor && request.ReMonitor)
                 return BadRequest("Cannot both unmonitor and re-monitor");
 
             var results = new List<ManageMediaItemResult>();
+
+            // Capture distinct series/movie exclusion targets BEFORE the per-item loop
+            // (the loop may stage selected items for deletion, so we snapshot identities now).
+            List<ExcludeByArrIdDto> exclusionTargets = new();
+            if (request.AddToExclusions)
+            {
+                var selectedSnap = await _dbContext.MediaItems
+                    .Where(m => request.ItemIds.Contains(m.Id))
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                foreach (var grp in selectedSnap.Where(m => m.SonarrId.HasValue).GroupBy(m => m.SonarrId!.Value))
+                    exclusionTargets.Add(new ExcludeByArrIdDto { SonarrId = grp.Key, Title = grp.First().Title, Type = MediaType.Series, Reason = "Excluded via Manage" });
+
+                foreach (var grp in selectedSnap.Where(m => m.RadarrId.HasValue && !m.SonarrId.HasValue).GroupBy(m => m.RadarrId!.Value))
+                    exclusionTargets.Add(new ExcludeByArrIdDto { RadarrId = grp.Key, Title = grp.First().Title, Type = MediaType.Movie, Reason = "Excluded via Manage" });
+            }
+
+            // When excluding is the only action, per-item result entries are noise — the exclusion
+            // phase reports per series below. Keep entries that carry errors so problems stay visible.
+            var onlyExcluding = request.AddToExclusions && !request.DeleteFiles && !request.RemoveFromArr
+                && !request.Unmonitor && !request.ReMonitor;
 
             foreach (var itemId in request.ItemIds)
             {
@@ -558,7 +586,57 @@ namespace Storarr.Controllers
                     _logger.LogError(ex, "[MediaController] Unexpected error managing {Title}", item.Title);
                 }
 
-                results.Add(result);
+                if (!onlyExcluding || result.Errors.Count > 0)
+                {
+                    results.Add(result);
+                }
+            }
+
+            // Phase: Add to Exclusions (series/movie level) — runs AFTER per-item actions,
+            // staging one ExcludedItem per distinct series/movie and removing all of its tracked items.
+            if (request.AddToExclusions && exclusionTargets.Count > 0)
+            {
+                foreach (var target in exclusionTargets)
+                {
+                    var exResult = await _exclusionService.ExcludeByArrIdAsync(target);
+                    var title = exResult.Exclusion?.Title ?? target.Title ?? "Unknown";
+
+                    if (exResult.Error != null)
+                    {
+                        results.Add(new ManageMediaItemResult
+                        {
+                            ItemId = 0,
+                            Title = title,
+                            Success = false,
+                            Errors = new List<string> { exResult.Error }
+                        });
+                    }
+                    else if (exResult.AlreadyExcluded)
+                    {
+                        results.Add(new ManageMediaItemResult
+                        {
+                            ItemId = exResult.ExistingExclusionId ?? 0,
+                            Title = title,
+                            Type = target.Type?.ToString() ?? "",
+                            Success = true,
+                            Actions = new List<string> { "addToExclusions" },
+                            Errors = new List<string> { "Already excluded" }
+                        });
+                    }
+                    else
+                    {
+                        results.Add(new ManageMediaItemResult
+                        {
+                            ItemId = exResult.Exclusion?.Id ?? 0,
+                            Title = title,
+                            Type = target.Type?.ToString() ?? "",
+                            Success = true,
+                            Actions = new List<string> { $"addToExclusions (removed {exResult.RemovedMediaCount})" }
+                        });
+                        _logger.LogInformation("[MediaController] Excluded {Title} via Manage (removed {Count} items)",
+                            title, exResult.RemovedMediaCount);
+                    }
+                }
             }
 
             await _dbContext.SaveChangesAsync();

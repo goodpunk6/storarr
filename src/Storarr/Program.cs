@@ -158,6 +158,7 @@ namespace Storarr
             // Services
             services.AddScoped<IFileManagementService, FileManagementService>();
             services.AddScoped<ITransitionService, TransitionService>();
+            services.AddScoped<IExclusionService, ExclusionService>();
 
             // Controllers
             services.AddControllers()

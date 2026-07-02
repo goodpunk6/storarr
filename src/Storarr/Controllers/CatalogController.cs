@@ -332,6 +332,18 @@ namespace Storarr.Controllers
                     });
                 }
 
+                // Respect exclusions: never (re-)track an excluded series/movie
+                bool isExcluded = dto.SonarrId.HasValue
+                    ? await _dbContext.ExcludedItems.AnyAsync(e => e.SonarrId == dto.SonarrId.Value)
+                    : dto.RadarrId.HasValue && await _dbContext.ExcludedItems.AnyAsync(e => e.RadarrId == dto.RadarrId.Value);
+
+                if (isExcluded)
+                {
+                    _logger.LogInformation("[CatalogController] EnsureTracked rejected - item is excluded (SonarrId={SonarrId}, RadarrId={RadarrId})",
+                        dto.SonarrId, dto.RadarrId);
+                    return BadRequest(new { error = "This item is excluded. Remove it from the Exclusions list before tracking it." });
+                }
+
                 // TmdbId required for TransitionToSymlink
                 if (!dto.TmdbId.HasValue)
                 {

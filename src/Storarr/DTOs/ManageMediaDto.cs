@@ -9,6 +9,7 @@ namespace Storarr.DTOs
         public bool RemoveFromArr { get; set; }
         public bool Unmonitor { get; set; }
         public bool ReMonitor { get; set; }
+        public bool AddToExclusions { get; set; }
     }
 
     public class ManageMediaResultDto

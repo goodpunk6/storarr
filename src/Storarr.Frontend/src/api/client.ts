@@ -58,7 +58,7 @@ export const clearErrors = (mode: 'retry' | 'delete') => api.post('/media/clear-
 
 export const manageMedia = async (
   itemIds: number[],
-  options: { deleteFiles: boolean; removeFromArr: boolean; unmonitor: boolean; reMonitor: boolean }
+  options: { deleteFiles: boolean; removeFromArr: boolean; unmonitor: boolean; reMonitor: boolean; addToExclusions: boolean }
 ) => {
   const response = await api.post('/media/manage', { itemIds, ...options })
   return response.data
