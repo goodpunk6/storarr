@@ -68,6 +68,64 @@ namespace Storarr.Services
 
                     if (targetClient != null)
                     {
+                        // PREFER A SEASON PACK when one is available + seeded: one download covers the
+                        // whole season (more efficient than per-episode). Falls through to per-episode if no pack.
+                        if ((item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                            && item.SonarrId.HasValue && item.SeasonNumber.HasValue)
+                        {
+                            var seriesId = item.SonarrId.Value;
+                            var seasonNo = item.SeasonNumber.Value;
+                            await _sonarrService.TriggerSeasonSearch(seriesId, seasonNo);
+                            await Task.Delay(TimeSpan.FromSeconds(20));
+                            var seasonReleases = await _sonarrService.SearchSeasonReleases(seriesId, seasonNo);
+                            var sBlocklist = await _sonarrService.GetBlocklistedTitles();
+                            var sNorm = NormalizeTitle(item.Title);
+                            var sProto = targetClient.Implementation.Equals("Sabnzbd", StringComparison.OrdinalIgnoreCase) ? "usenet" : "torrent";
+                            var packPool = seasonReleases
+                                .Where(r => r.Protocol?.Equals(sProto, StringComparison.OrdinalIgnoreCase) == true)
+                                .Where(r => !sBlocklist.Contains(r.Title))
+                                .Where(r => ReleaseMatchesSeries(r.Title, sNorm))
+                                .Where(r => IsSeasonPack(r.Title, seasonNo))
+                                .Where(r => !string.IsNullOrEmpty(r.RawJson))
+                                .ToList();
+                            var pTier1 = packPool.Where(r => r.DownloadAllowed)
+                                .OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ToList();
+                            var pTier2 = pTier1.Count == 0
+                                ? packPool.Where(r => (r.Seeders ?? 0) >= 1).OrderByDescending(r => r.Seeders ?? 0).ToList()
+                                : new List<ReleaseResult>();
+                            var bestPack = (pTier1.Count > 0 ? pTier1 : pTier2).FirstOrDefault();
+                            if (bestPack != null && (bestPack.Seeders ?? 0) >= 3)
+                            {
+                                _logger.LogInformation("[TransitionService] {Title} S{Season}: season pack available (seeders {Seeders}, tier {Tier}) -> grabbing whole season via pack",
+                                    item.Title, seasonNo, bestPack.Seeders, pTier1.Count > 0 ? "quality" : "bypass");
+                                var seasonItems = await _dbContext.MediaItems
+                                    .Where(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNo
+                                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink) && !m.IsExcluded)
+                                    .ToListAsync();
+                                foreach (var si in seasonItems)
+                                {
+                                    var arrPath = await RemapToArrPath(si.FilePath, si);
+                                    await _sonarrService.DeleteEpisodeFileByPath(seriesId, si.FilePath);
+                                    await _sonarrService.DeleteEpisodeFileByPath(seriesId, arrPath);
+                                    if (await _fileService.FileExists(si.FilePath)) await _fileService.DeleteFile(si.FilePath);
+                                }
+                                var allEpIds = await _sonarrService.GetEpisodeIds(seriesId, seasonNo);
+                                var packGrab = await _sonarrService.GrabReleaseOverride(bestPack.RawJson!, targetClient.Id, seriesId, allEpIds.ToArray());
+                                if (packGrab.Success)
+                                {
+                                    foreach (var si in seasonItems) { si.CurrentState = FileState.Downloading; si.StateChangedAt = DateTime.UtcNow; }
+                                    await _dbContext.SaveChangesAsync();
+                                    foreach (var si in seasonItems) await _hubContext.Clients.All.SendAsync("MediaUpdated", si.Id, si.CurrentState.ToString());
+                                    _logger.LogInformation("[TransitionService] Override-grabbed season pack '{Pack}' for {Count} episodes via {Client}", bestPack.Title, seasonItems.Count, targetClient.Name);
+                                    grabTriggered = true;
+                                    return;
+                                }
+                                _logger.LogWarning("[TransitionService] Season pack grab failed ({Error}); falling back to per-episode", packGrab.ErrorMessage);
+                                foreach (var si in seasonItems) { si.CurrentState = FileState.PendingSymlink; si.PendingSymlinkAt = DateTime.UtcNow; si.StateChangedAt = DateTime.UtcNow; }
+                                await _dbContext.SaveChangesAsync();
+                            }
+                        }
+
                         // Search releases scoped to this specific episode/movie
                         // Trigger a LIVE indexer search first — the cached release list may be empty/stale
                         IEnumerable<ReleaseResult> releases;
