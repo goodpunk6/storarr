@@ -130,7 +130,8 @@ namespace Storarr.Services
                         // Tier 1 (quality): releases the arr approves under its quality profile.
                         var tier1 = pool
                             .Where(r => r.DownloadAllowed)
-                            .OrderByDescending(r => r.CustomFormatScore)
+                            .OrderByDescending(r => r.Seeders ?? 0)
+                            .ThenByDescending(r => r.CustomFormatScore)
                             .ThenByDescending(r => r.QualityWeight)
                             .ThenBy(r => r.Age)
                             .ToList();
@@ -1011,6 +1012,161 @@ namespace Storarr.Services
                 .Where(w => !stopWords.Contains(w))
                 .ToList();
             return string.Join(" ", words);
+        }
+
+        public async Task<SeasonConversionResult> TransitionSeasonToMkv(int seriesId, int seasonNumber)
+        {
+            var result = new SeasonConversionResult();
+            try
+            {
+                // Gather Symlink/PendingSymlink episodes for this series+season
+                var items = await _dbContext.MediaItems
+                    .Where(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNumber
+                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)
+                        && !m.IsExcluded)
+                    .ToListAsync();
+                if (items.Count == 0)
+                {
+                    result.Message = $"No symlink items found for series {seriesId} season {seasonNumber}";
+                    _logger.LogWarning("[TransitionService] {Message}", result.Message);
+                    return result;
+                }
+                var title = items.First().Title;
+
+                // Resolve the configured MKV download client
+                var config = await _dbContext.Configs.FindAsync(Config.SingletonId);
+                var clients = await _sonarrService.GetDownloadClients();
+                int? targetClientId = config?.SonarrMkvDownloadClientId;
+                DownloadClientInfo? targetClient = targetClientId.HasValue
+                    ? clients.FirstOrDefault(c => c.Id == targetClientId.Value)
+                    : null;
+                targetClient ??= clients.FirstOrDefault(c => c.Enable && !c.Name.Equals("NZBdav", StringComparison.OrdinalIgnoreCase));
+                if (targetClient == null)
+                {
+                    result.Message = "No MKV download client configured";
+                    return result;
+                }
+                var mkvProtocol = targetClient.Implementation.Equals("Sabnzbd", StringComparison.OrdinalIgnoreCase) ? "usenet" : "torrent";
+
+                // Live season search (populates Sonarr's release cache)
+                _logger.LogInformation("[TransitionService] Season->MKV: {Title} S{Season} ({Count} episodes)", title, seasonNumber, items.Count);
+                await _sonarrService.TriggerSeasonSearch(seriesId, seasonNumber);
+                await Task.Delay(TimeSpan.FromSeconds(20));
+                var releases = await _sonarrService.SearchSeasonReleases(seriesId, seasonNumber);
+
+                // Pool = season packs matching the series, seeders-aware two-tier
+                var blocklist = await _sonarrService.GetBlocklistedTitles();
+                var normalizedTitle = NormalizeTitle(title);
+                var pool = releases
+                    .Where(r => r.Protocol?.Equals(mkvProtocol, StringComparison.OrdinalIgnoreCase) == true)
+                    .Where(r => !blocklist.Contains(r.Title))
+                    .Where(r => ReleaseMatchesSeries(r.Title, normalizedTitle))
+                    .Where(r => IsSeasonPack(r.Title, seasonNumber))
+                    .Where(r => !string.IsNullOrEmpty(r.RawJson))
+                    .ToList();
+
+                var tier1 = pool.Where(r => r.DownloadAllowed)
+                    .OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ThenBy(r => r.Age).ToList();
+                var tier2 = tier1.Count == 0
+                    ? pool.Where(r => (r.Seeders ?? 0) >= 1).OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ToList()
+                    : new List<ReleaseResult>();
+                var chosen = tier1.Count > 0 ? tier1 : tier2;
+                result.Tier = tier1.Count > 0 ? "quality" : (tier2.Count > 0 ? "bypass" : "none");
+
+                _logger.LogInformation("[TransitionService] Season {Title}: pool={Pool} tier1={T1} tier2={T2} (chose {Tier})", title, pool.Count, tier1.Count, tier2.Count, result.Tier);
+
+                if (chosen.Count == 0)
+                {
+                    result.Message = $"No season packs found for {title} S{seasonNumber}";
+                    return result;
+                }
+                var pack = chosen[0];
+                result.ChosenRelease = pack.Title;
+
+                // Resolve episode IDs for all items
+                var episodeIds = new List<int>();
+                foreach (var item in items)
+                {
+                    if (!item.SeasonNumber.HasValue || !item.EpisodeNumber.HasValue) continue;
+                    var epId = await _sonarrService.GetEpisodeId(seriesId, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                    if (epId.HasValue) episodeIds.Add(epId.Value);
+                }
+                if (episodeIds.Count == 0)
+                {
+                    result.Message = "Could not resolve any episode IDs";
+                    return result;
+                }
+
+                // Delete existing files for ALL episodes so the pack imports cleanly
+                foreach (var item in items)
+                {
+                    var arrFilePath = await RemapToArrPath(item.FilePath, item);
+                    await _sonarrService.DeleteEpisodeFileByPath(seriesId, item.FilePath);
+                    await _sonarrService.DeleteEpisodeFileByPath(seriesId, arrFilePath);
+                    if (await _fileService.FileExists(item.FilePath))
+                        await _fileService.DeleteFile(item.FilePath);
+                }
+                _logger.LogInformation("[TransitionService] Deleted {Count} existing files for {Title} S{Season}", items.Count, title, seasonNumber);
+
+                // Override-grab the season pack for all episodes at once
+                var grab = await _sonarrService.GrabReleaseOverride(pack.RawJson!, targetClient.Id, seriesId, episodeIds.ToArray());
+                if (!grab.Success)
+                {
+                    result.Message = $"Override grab failed: {grab.ErrorMessage}; marking items PendingSymlink for .strm recovery";
+                    _logger.LogWarning("[TransitionService] {Message}", result.Message);
+                    foreach (var item in items)
+                    {
+                        item.CurrentState = FileState.PendingSymlink;
+                        item.PendingSymlinkAt = DateTime.UtcNow;
+                        item.StateChangedAt = DateTime.UtcNow;
+                    }
+                    await _dbContext.SaveChangesAsync();
+                    return result;
+                }
+
+                foreach (var item in items)
+                {
+                    item.CurrentState = FileState.Downloading;
+                    item.StateChangedAt = DateTime.UtcNow;
+                    await _hubContext.Clients.All.SendAsync("MediaUpdated", item.Id, item.CurrentState.ToString());
+                }
+                await _dbContext.SaveChangesAsync();
+
+                result.ConvertedCount = items.Count;
+                result.Message = $"Override-grabbed '{pack.Title}' [{result.Tier}] for {items.Count} episodes via {targetClient.Name}";
+                _logger.LogInformation("[TransitionService] {Message}", result.Message);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[TransitionService] Failed season->MKV for series {SeriesId} season {Season}", seriesId, seasonNumber);
+                result.Message = "Error: " + ex.Message;
+                return result;
+            }
+        }
+
+        private static bool IsSeasonPack(string releaseTitle, int seasonNumber)
+        {
+            var t = (releaseTitle ?? "").ToUpperInvariant();
+            // Episode range like S01E01-E08
+            if (System.Text.RegularExpressions.Regex.IsMatch(t, $@"S0?{seasonNumber}E\d{{1,2}}-E\d{{1,2}}")) return true;
+            if (t.Contains("COMPLETE")) return true;
+            if (t.Contains($"SEASON {seasonNumber}")) return true;
+            // Bare season marker (S0N) without a specific single-episode number
+            if (System.Text.RegularExpressions.Regex.IsMatch(t, $@"S0?{seasonNumber}\b")
+                && !System.Text.RegularExpressions.Regex.IsMatch(t, $@"S0?{seasonNumber}E\d{{1,2}}")) return true;
+            return false;
+        }
+
+        private static bool ReleaseMatchesSeries(string releaseTitle, string normalizedSeriesTitle)
+        {
+            var normalizedRelease = System.Text.RegularExpressions.Regex.Replace(
+                (releaseTitle ?? "").ToLowerInvariant(), @"[^a-z0-9]+", " ");
+            var seriesWords = normalizedSeriesTitle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (seriesWords.Length == 0) return true;
+            var releaseWords = new HashSet<string>(normalizedRelease.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            var matchCount = seriesWords.Count(w => releaseWords.Contains(w));
+            return matchCount >= Math.Max(1, (int)Math.Ceiling(seriesWords.Length * 0.5));
         }
 
         private static bool ReleaseMatchesItem(string releaseTitle, MediaItem item, string normalizedItemTitle)

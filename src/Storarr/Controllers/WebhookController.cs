@@ -172,10 +172,22 @@ namespace Storarr.Controllers
             var item = await _dbContext.MediaItems
                 .FirstOrDefaultAsync(m => m.FilePath == remappedPath || m.FilePath == payload.EpisodeFile.Path);
 
-            // ID-based fallback: lookup by SonarrId + matching state
+            // ID-based fallback: lookup by SonarrId + season/episode + matching state.
+            // Matching the episode is critical when several episodes of the same series are
+            // converting at once — otherwise FirstOrDefault assigns the completed file to the
+            // wrong item and its FilePath drifts out of sync with its EpisodeNumber.
             if (item == null && payload.Series?.Id > 0)
             {
-                item = await _dbContext.MediaItems
+                if (payload.Episode != null)
+                {
+                    item = await _dbContext.MediaItems
+                        .FirstOrDefaultAsync(m => m.SonarrId == payload.Series.Id &&
+                            m.SeasonNumber == payload.Episode.SeasonNumber &&
+                            m.EpisodeNumber == payload.Episode.EpisodeNumber &&
+                            (m.CurrentState == FileState.Downloading || m.CurrentState == FileState.PendingSymlink));
+                }
+                // Last-resort fallback only if the payload omitted episode details
+                item ??= await _dbContext.MediaItems
                     .FirstOrDefaultAsync(m => m.SonarrId == payload.Series.Id &&
                         (m.CurrentState == FileState.Downloading || m.CurrentState == FileState.PendingSymlink));
             }
@@ -192,7 +204,7 @@ namespace Storarr.Controllers
 
                     item.CurrentState = FileState.Symlink;
                     item.StateChangedAt = DateTime.UtcNow;
-                    item.FilePath = remappedPath;
+                    ApplyFilePath(item, remappedPath);
                     item.FileSize = payload.EpisodeFile.Size;
 
                     _dbContext.ActivityLogs.Add(new ActivityLog
@@ -212,7 +224,7 @@ namespace Storarr.Controllers
 
                 item.CurrentState = isSymlink ? FileState.Symlink : FileState.Mkv;
                 item.StateChangedAt = DateTime.UtcNow;
-                item.FilePath = remappedPath;
+                ApplyFilePath(item, remappedPath);
                 item.FileSize = payload.EpisodeFile.Size;
                 item.SonarrFileId = payload.EpisodeFile.Id;
 
@@ -263,7 +275,7 @@ namespace Storarr.Controllers
 
                     item.CurrentState = FileState.Symlink;
                     item.StateChangedAt = DateTime.UtcNow;
-                    item.FilePath = remappedPath;
+                    ApplyFilePath(item, remappedPath);
                     item.FileSize = payload.MovieFile.Size;
 
                     _dbContext.ActivityLogs.Add(new ActivityLog
@@ -283,7 +295,7 @@ namespace Storarr.Controllers
 
                 item.CurrentState = isSymlink ? FileState.Symlink : FileState.Mkv;
                 item.StateChangedAt = DateTime.UtcNow;
-                item.FilePath = remappedPath;
+                ApplyFilePath(item, remappedPath);
                 item.FileSize = payload.MovieFile.Size;
                 item.RadarrFileId = payload.MovieFile.Id;
 
@@ -301,6 +313,21 @@ namespace Storarr.Controllers
                 await _dbContext.SaveChangesAsync();
 
                 _logger.LogInformation("Radarr download complete for {Title}", item.Title);
+            }
+        }
+
+        // Sets the item's FilePath AND re-derives SeasonNumber/EpisodeNumber from the file name,
+        // so episode metadata always tracks the actual file (prevents FilePath/EpisodeNumber drift
+        // when Sonarr imports/renames a file to a different episode than storarr expected).
+        private static void ApplyFilePath(MediaItem item, string path)
+        {
+            item.FilePath = path;
+            var fileName = System.IO.Path.GetFileNameWithoutExtension(path);
+            var match = System.Text.RegularExpressions.Regex.Match(fileName, @"S(\d{1,2})E(\d{1,2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                if (int.TryParse(match.Groups[1].Value, out var season)) item.SeasonNumber = season;
+                if (int.TryParse(match.Groups[2].Value, out var episode)) item.EpisodeNumber = episode;
             }
         }
 

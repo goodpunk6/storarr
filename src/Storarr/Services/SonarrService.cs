@@ -443,6 +443,75 @@ namespace Storarr.Services
             }
         }
 
+        public async Task TriggerSeasonSearch(int seriesId, int seasonNumber)
+        {
+            try
+            {
+                var requestBody = new { name = "SeasonSearch", seriesId, seasonNumber };
+                var json = JsonSerializer.Serialize(requestBody);
+                var request = await CreateRequest(HttpMethod.Post, "api/v3/command");
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                _logger.LogInformation("Triggered season search for series {SeriesId} season {SeasonNumber}", seriesId, seasonNumber);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to trigger season search for series {SeriesId} season {SeasonNumber}", seriesId, seasonNumber);
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<ReleaseResult>> SearchSeasonReleases(int seriesId, int seasonNumber)
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get,
+                    $"api/v3/release?seriesId={seriesId}&seasonNumber={seasonNumber}");
+                var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Sonarr season release search for series {SeriesId} season {SeasonNumber} returned {StatusCode}", seriesId, seasonNumber, response.StatusCode);
+                    return Enumerable.Empty<ReleaseResult>();
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<SonarrReleaseResponse>>(content, _jsonOptions);
+
+                var rawByCacheKey = new Dictionary<string, string>();
+                using (var doc = JsonDocument.Parse(content))
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        var guid = el.TryGetProperty("guid", out var g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null;
+                        var indexerId = el.TryGetProperty("indexerId", out var i) && i.TryGetInt32(out var iv) ? iv : 0;
+                        if (guid != null)
+                            rawByCacheKey[$"{indexerId}_{guid}"] = el.GetRawText();
+                    }
+                }
+
+                return data?.Select(r => new ReleaseResult
+                {
+                    Guid = r.Guid,
+                    Title = r.Title,
+                    Size = r.Size,
+                    IndexerId = r.IndexerId,
+                    DownloadAllowed = r.DownloadAllowed,
+                    Protocol = r.Protocol,
+                    QualityWeight = r.QualityWeight,
+                    CustomFormatScore = r.CustomFormatScore,
+                    Seeders = r.Seeders,
+                    Age = r.Age,
+                    RawJson = rawByCacheKey.TryGetValue($"{r.IndexerId}_{r.Guid}", out var raw) ? raw : null
+                }) ?? Enumerable.Empty<ReleaseResult>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to search season releases for series {SeriesId} season {SeasonNumber}", seriesId, seasonNumber);
+                return Enumerable.Empty<ReleaseResult>();
+            }
+        }
+
         public async Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null)
         {
             try

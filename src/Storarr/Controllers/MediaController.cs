@@ -222,6 +222,50 @@ namespace Storarr.Controllers
             }
         }
 
+        [HttpPost("convert-season")]
+        public async Task<ActionResult> ConvertSeason([FromQuery] int seriesId, [FromQuery] int seasonNumber)
+        {
+            _logger.LogInformation("[MediaController] ConvertSeason seriesId={SeriesId} seasonNumber={SeasonNumber}", seriesId, seasonNumber);
+            try
+            {
+                var result = await _transitionService.TransitionSeasonToMkv(seriesId, seasonNumber);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MediaController] Error in ConvertSeason");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        // Re-derives SeasonNumber/EpisodeNumber for every item from its FilePath (S##E##).
+        // Repairs drift caused by the pre-fix webhook assigning imported files to the wrong item.
+        [HttpPost("repair-episode-metadata")]
+        public async Task<ActionResult> RepairEpisodeMetadata()
+        {
+            _logger.LogInformation("[MediaController] Repairing episode metadata from file paths");
+            var items = await _dbContext.MediaItems.ToListAsync();
+            int fixedCount = 0;
+            foreach (var item in items)
+            {
+                if (string.IsNullOrEmpty(item.FilePath)) continue;
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.FilePath);
+                var m = System.Text.RegularExpressions.Regex.Match(fileName, @"S(\d{1,2})E(\d{1,2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var season) && int.TryParse(m.Groups[2].Value, out var episode))
+                {
+                    if (item.SeasonNumber != season || item.EpisodeNumber != episode)
+                    {
+                        item.SeasonNumber = season;
+                        item.EpisodeNumber = episode;
+                        fixedCount++;
+                    }
+                }
+            }
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("[MediaController] Repaired episode metadata for {Count} of {Total} items", fixedCount, items.Count);
+            return Ok(new { message = "Episode metadata repaired", repaired = fixedCount, total = items.Count });
+        }
+
         [HttpPost("{id}/retry-transition")]
         public async Task<ActionResult> RetryTransition(int id)
         {

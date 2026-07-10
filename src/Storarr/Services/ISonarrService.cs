@@ -40,12 +40,14 @@ namespace Storarr.Services
         Task<IEnumerable<SonarrEpisodeFile>> GetEpisodeFiles(int seriesId);
         Task<SonarrEpisodeFile?> FindEpisodeFileByPath(int seriesId, string filePath);
         Task TriggerSearch(int seriesId, int[]? episodeIds = null);
+        Task TriggerSeasonSearch(int seriesId, int seasonNumber);
         Task<SonarrEpisodeFile?> GetEpisodeFile(int episodeFileId);
         Task DeleteEpisodeFile(int episodeFileId);
         Task<bool> DeleteEpisodeFileByPath(int seriesId, string filePath);
         Task<List<SonarrQueueItem>> GetQueue();
         Task TestConnection();
         Task<IEnumerable<ReleaseResult>> SearchReleases(int seriesId, int[] episodeIds);
+        Task<IEnumerable<ReleaseResult>> SearchSeasonReleases(int seriesId, int seasonNumber);
         Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null);
         Task<GrabResult> GrabReleaseOverride(string rawJson, int downloadClientId, int seriesId, int[] episodeIds);
         Task<IEnumerable<DownloadClientInfo>> GetDownloadClients();

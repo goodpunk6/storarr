@@ -9,8 +9,17 @@ namespace Storarr.Services
     {
         Task TransitionToMkv(MediaItem item);
         Task TransitionToSymlink(MediaItem item);
+        Task<SeasonConversionResult> TransitionSeasonToMkv(int seriesId, int seasonNumber);
         Task CheckAndProcessTransitions();
         Task<IEnumerable<TransitionCandidate>> GetUpcomingTransitions(int count = 10);
+    }
+
+    public class SeasonConversionResult
+    {
+        public int ConvertedCount { get; set; }
+        public string? Tier { get; set; }
+        public string? ChosenRelease { get; set; }
+        public string? Message { get; set; }
     }
 
     public class TransitionCandidate
