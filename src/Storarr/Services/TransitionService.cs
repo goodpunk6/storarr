@@ -69,6 +69,7 @@ namespace Storarr.Services
                     if (targetClient != null)
                     {
                         // Search releases scoped to this specific episode/movie
+                        // Trigger a LIVE indexer search first — the cached release list may be empty/stale
                         IEnumerable<ReleaseResult> releases;
                         if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
                         {
@@ -80,13 +81,24 @@ namespace Storarr.Services
                             else
                             {
                                 var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                                releases = episodeId.HasValue
-                                    ? await _sonarrService.SearchReleases(item.SonarrId.Value, new[] { episodeId.Value })
-                                    : Enumerable.Empty<ReleaseResult>();
+                                if (episodeId.HasValue)
+                                {
+                                    _logger.LogInformation("[TransitionService] Triggering live Sonarr search for {Title}", item.Title);
+                                    await _sonarrService.TriggerSearch(item.SonarrId.Value, new[] { episodeId.Value });
+                                    await Task.Delay(TimeSpan.FromSeconds(20));
+                                    releases = await _sonarrService.SearchReleases(item.SonarrId.Value, new[] { episodeId.Value });
+                                }
+                                else
+                                {
+                                    releases = Enumerable.Empty<ReleaseResult>();
+                                }
                             }
                         }
                         else if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
                         {
+                            _logger.LogInformation("[TransitionService] Triggering live Radarr search for {Title}", item.Title);
+                            await _radarrService.TriggerSearch(item.RadarrId.Value);
+                            await Task.Delay(TimeSpan.FromSeconds(20));
                             releases = await _radarrService.SearchReleases(item.RadarrId.Value);
                         }
                         else
@@ -105,23 +117,45 @@ namespace Storarr.Services
                             : await _radarrService.GetBlocklistedTitles();
 
                         var normalizedItemTitle = NormalizeTitle(item.Title);
-                        var eligibleReleases = releases
+
+                        // Candidate pool: torrents matching the title, not blocklisted, with cached
+                        // release data (RawJson) needed for the override grab.
+                        var pool = releases
                             .Where(r => r.Protocol?.Equals(mkvProtocol, StringComparison.OrdinalIgnoreCase) == true)
                             .Where(r => !blocklist.Contains(r.Title))
                             .Where(r => ReleaseMatchesItem(r.Title, item, normalizedItemTitle))
+                            .Where(r => !string.IsNullOrEmpty(r.RawJson))
+                            .ToList();
+
+                        // Tier 1 (quality): releases the arr approves under its quality profile.
+                        var tier1 = pool
+                            .Where(r => r.DownloadAllowed)
                             .OrderByDescending(r => r.CustomFormatScore)
                             .ThenByDescending(r => r.QualityWeight)
                             .ThenBy(r => r.Age)
                             .ToList();
 
-                        _logger.LogInformation("[TransitionService] Found {Count} eligible {Protocol} releases for {Title} (MKV via {Client})", eligibleReleases.Count, mkvProtocol, item.Title, targetClient.Name);
+                        // Tier 2 (bypass): if no quality-approved release, take any seeded release and
+                        // grab it via "override and add to download queue", ignoring the quality profile.
+                        var tier2 = tier1.Count == 0
+                            ? pool
+                                .Where(r => (r.Seeders ?? 0) >= 1)
+                                .OrderByDescending(r => r.Seeders ?? 0)
+                                .ThenByDescending(r => r.CustomFormatScore)
+                                .ToList()
+                            : new List<ReleaseResult>();
 
-                        // Delete existing file BEFORE grabbing — Sonarr/Radarr reject releases when
-                        // an existing file has equal or higher Custom Format score. Deleting first
-                        // removes that rejection so the configured MKV download client can grab.
-                        // Applies to any show or movie.
-                        if (eligibleReleases.Count > 0)
+                        var chosen = tier1.Count > 0 ? tier1 : tier2;
+                        var tier = tier1.Count > 0 ? "quality" : (tier2.Count > 0 ? "bypass" : "none");
+
+                        _logger.LogInformation("[TransitionService] {Title}: pool={Pool} tier1={T1} tier2={T2} (chose {Tier}) via {Client}",
+                            item.Title, pool.Count, tier1.Count, tier2.Count, tier, targetClient.Name);
+
+                        if (chosen.Count > 0)
                         {
+                            // Delete existing file BEFORE grabbing — Sonarr/Radarr reject releases when an
+                            // existing file has equal/higher CF score, and the import needs the old file
+                            // gone to place the new .mkv. Applies to any show or movie.
                             bool apiDeleted = false;
                             var arrFilePath = await RemapToArrPath(item.FilePath, item);
 
@@ -140,36 +174,47 @@ namespace Storarr.Services
                                 await _fileService.DeleteFile(item.FilePath);
 
                             _logger.LogInformation("[TransitionService] Deleted existing file for {Title} before grab (API: {ApiDeleted})", item.Title, apiDeleted);
-                        }
 
-                        foreach (var release in eligibleReleases)
-                        {
-                            GrabResult result;
-                            if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
+                            foreach (var release in chosen)
                             {
-                                int[]? epIds = null;
-                                if (item.SonarrId.HasValue && item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                                GrabResult result;
+                                if (item.Type == MediaType.Series || item.Type == MediaType.Anime)
                                 {
-                                    var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                                    if (epId.HasValue) epIds = new[] { epId.Value };
+                                    if (!item.SonarrId.HasValue)
+                                    {
+                                        result = new GrabResult { Success = false, ErrorMessage = "Missing SonarrId" };
+                                    }
+                                    else
+                                    {
+                                        int[]? epIds = null;
+                                        if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
+                                        {
+                                            var epId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
+                                            if (epId.HasValue) epIds = new[] { epId.Value };
+                                        }
+                                        result = epIds != null
+                                            ? await _sonarrService.GrabReleaseOverride(release.RawJson!, targetClient.Id, item.SonarrId.Value, epIds)
+                                            : new GrabResult { Success = false, ErrorMessage = "Missing episode id" };
+                                    }
                                 }
-                                result = await _sonarrService.GrabRelease(release.Guid, release.IndexerId, targetClient.Id, item.SonarrId, epIds);
-                            }
-                            else
-                            {
-                                result = await _radarrService.GrabRelease(release.Guid, release.IndexerId, targetClient.Id, item.RadarrId);
-                            }
+                                else
+                                {
+                                    result = item.RadarrId.HasValue
+                                        ? await _radarrService.GrabReleaseOverride(release.RawJson!, targetClient.Id, item.RadarrId.Value)
+                                        : new GrabResult { Success = false, ErrorMessage = "Missing RadarrId" };
+                                }
 
-                            if (result.Success)
-                            {
-                                _logger.LogInformation("[TransitionService] Grabbed '{Title}' (CF:{CF}, QW:{QW}, Age:{Age}d) via {Client} for {ItemTitle}",
-                                    release.Title, release.CustomFormatScore, release.QualityWeight, release.Age, targetClient.Name, item.Title);
-                                grabTriggered = true;
-                                break;
-                            }
+                                if (result.Success)
+                                {
+                                    _logger.LogInformation("[TransitionService] Override-grabbed '{Title}' [{Tier}] (CF:{CF}, QW:{QW}, Seeders:{Seeders}, Age:{Age}d) via {Client} for {ItemTitle}",
+                                        release.Title, tier, release.CustomFormatScore, release.QualityWeight, release.Seeders, release.Age, targetClient.Name, item.Title);
+                                    grabTriggered = true;
+                                    break;
+                                }
 
-                            _logger.LogWarning("[TransitionService] Grab failed for '{Title}': {Error}, trying next",
-                                release.Title, result.ErrorMessage);
+                                _logger.LogWarning("[TransitionService] Override grab failed for '{Title}': {Error}, trying next",
+                                    release.Title, result.ErrorMessage);
+                            }
                         }
                     }
                     else

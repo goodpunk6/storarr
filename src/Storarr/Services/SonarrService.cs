@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Storarr.Data;
@@ -392,9 +393,10 @@ namespace Storarr.Services
         {
             try
             {
-                var episodeIdsParam = string.Join(",", episodeIds);
+                // Sonarr's GET /release binds a single 'episodeId' (singular); the plural 'episodeIds'
+                // is ignored and falls through to RSS (unrelated releases). Pass the first episode id.
                 var request = await CreateRequest(HttpMethod.Get,
-                    $"api/v3/release?seriesId={seriesId}&episodeIds={episodeIdsParam}");
+                    $"api/v3/release?seriesId={seriesId}&episodeId={episodeIds.FirstOrDefault()}");
                 var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -404,6 +406,20 @@ namespace Storarr.Services
 
                 var content = await response.Content.ReadAsStringAsync();
                 var data = JsonSerializer.Deserialize<List<SonarrReleaseResponse>>(content, _jsonOptions);
+
+                // Capture each release's raw JSON (keyed by Sonarr's cache key indexerId_guid) so a later
+                // "override and add to download queue" grab can echo quality/languages back to Sonarr.
+                var rawByCacheKey = new Dictionary<string, string>();
+                using (var doc = JsonDocument.Parse(content))
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        var guid = el.TryGetProperty("guid", out var g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null;
+                        var indexerId = el.TryGetProperty("indexerId", out var i) && i.TryGetInt32(out var iv) ? iv : 0;
+                        if (guid != null)
+                            rawByCacheKey[$"{indexerId}_{guid}"] = el.GetRawText();
+                    }
+                }
 
                 return data?.Select(r => new ReleaseResult
                 {
@@ -416,7 +432,8 @@ namespace Storarr.Services
                     QualityWeight = r.QualityWeight,
                     CustomFormatScore = r.CustomFormatScore,
                     Seeders = r.Seeders,
-                    Age = r.Age
+                    Age = r.Age,
+                    RawJson = rawByCacheKey.TryGetValue($"{r.IndexerId}_{r.Guid}", out var raw) ? raw : null
                 }) ?? Enumerable.Empty<ReleaseResult>();
             }
             catch (Exception ex)
@@ -476,6 +493,47 @@ namespace Storarr.Services
                     Success = false,
                     ErrorMessage = ex.Message
                 };
+            }
+        }
+
+        public async Task<GrabResult> GrabReleaseOverride(string rawJson, int downloadClientId, int seriesId, int[] episodeIds)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(rawJson))
+                    return new GrabResult { Success = false, ErrorMessage = "Release has no cached data; search again" };
+
+                var body = JsonNode.Parse(rawJson)?.AsObject();
+                if (body == null)
+                    return new GrabResult { Success = false, ErrorMessage = "Invalid release data" };
+
+                // "Override and add to download queue": force the release into the specified download
+                // client, bypassing quality / existing-file rejections. Quality + Languages are echoed
+                // from the cached release so Sonarr accepts the override.
+                body["downloadClientId"] = downloadClientId;
+                body["shouldOverride"] = true;
+                body["seriesId"] = seriesId;
+                body["episodeIds"] = new JsonArray(episodeIds.Select(i => (JsonNode)i).ToArray());
+
+                var json = body.ToJsonString();
+                var request = await CreateRequest(HttpMethod.Post, "api/v3/release");
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Override-grabbed release for series {SeriesId} via download client {ClientId}", seriesId, downloadClientId);
+                    return new GrabResult { Success = true };
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Override grab failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return new GrabResult { Success = false, ErrorMessage = $"HTTP {response.StatusCode}: {errorContent}" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed override grab for series {SeriesId}", seriesId);
+                return new GrabResult { Success = false, ErrorMessage = ex.Message };
             }
         }
 

@@ -15,6 +15,7 @@ namespace Storarr.Services
         public int CustomFormatScore { get; set; }
         public int? Seeders { get; set; }
         public int Age { get; set; }
+        public string? RawJson { get; set; }
     }
 
     public class GrabResult
@@ -46,6 +47,7 @@ namespace Storarr.Services
         Task TestConnection();
         Task<IEnumerable<ReleaseResult>> SearchReleases(int seriesId, int[] episodeIds);
         Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null);
+        Task<GrabResult> GrabReleaseOverride(string rawJson, int downloadClientId, int seriesId, int[] episodeIds);
         Task<IEnumerable<DownloadClientInfo>> GetDownloadClients();
         Task<int?> GetEpisodeId(int seriesId, int seasonNumber, int episodeNumber);
         Task<HashSet<string>> GetBlocklistedTitles();

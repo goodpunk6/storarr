@@ -17,6 +17,7 @@ namespace Storarr.Services
         Task TestConnection();
         Task<IEnumerable<ReleaseResult>> SearchReleases(int movieId);
         Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? movieId = null);
+        Task<GrabResult> GrabReleaseOverride(string rawJson, int downloadClientId, int movieId);
         Task<IEnumerable<DownloadClientInfo>> GetDownloadClients();
         Task<HashSet<string>> GetBlocklistedTitles();
         Task DeleteMovie(int movieId, bool deleteFiles = false);
