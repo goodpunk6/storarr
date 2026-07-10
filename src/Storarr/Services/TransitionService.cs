@@ -156,41 +156,15 @@ namespace Storarr.Services
                     _logger.LogWarning(ex, "[TransitionService] Manual grab failed for {Title}, will fall back", item.Title);
                 }
 
-                // Fallback: let the arr handle it via TriggerSearch
+                // If no grab was triggered via the configured MKV download client, revert to Symlink.
+                // Do NOT fall back to TriggerSearch — that lets Sonarr/Radarr pick any download client,
+                // violating the "use only the configured MKV download client" rule.
                 if (!grabTriggered)
                 {
-                    if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                    {
-                        _logger.LogWarning("[TransitionService] Falling back to Radarr TriggerSearch for {Title}", item.Title);
-                        await _radarrService.TriggerSearch(item.RadarrId.Value);
-                        grabTriggered = true;
-                    }
-                    else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
-                    {
-                        _logger.LogWarning("[TransitionService] Falling back to Sonarr TriggerSearch for {Title}", item.Title);
-                        if (item.SeasonNumber.HasValue && item.EpisodeNumber.HasValue)
-                        {
-                            var episodeId = await _sonarrService.GetEpisodeId(item.SonarrId.Value, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                            if (episodeId.HasValue)
-                            {
-                                await _sonarrService.TriggerSearch(item.SonarrId.Value, new[] { episodeId.Value });
-                            }
-                            else
-                            {
-                                await _sonarrService.TriggerSearch(item.SonarrId.Value);
-                            }
-                        }
-                        else
-                        {
-                            await _sonarrService.TriggerSearch(item.SonarrId.Value);
-                        }
-                        grabTriggered = true;
-                    }
-                }
-
-                if (!grabTriggered)
-                {
-                    _logger.LogWarning("[TransitionService] No Arr service configured for {Title}, proceeding with deletion anyway", item.Title);
+                    _logger.LogWarning("[TransitionService] No eligible releases via configured MKV download client for {Title}. Reverting to Symlink (no fallback).", item.Title);
+                    await LogActivity(item.Id, "TransitionToMkv", FileState.Symlink, FileState.Symlink,
+                        "No releases via configured MKV client, reverted");
+                    return;
                 }
 
                 // Delete the file
