@@ -116,6 +116,32 @@ namespace Storarr.Services
 
                         _logger.LogInformation("[TransitionService] Found {Count} eligible {Protocol} releases for {Title} (MKV via {Client})", eligibleReleases.Count, mkvProtocol, item.Title, targetClient.Name);
 
+                        // Delete existing file BEFORE grabbing — Sonarr/Radarr reject releases when
+                        // an existing file has equal or higher Custom Format score. Deleting first
+                        // removes that rejection so the configured MKV download client can grab.
+                        // Applies to any show or movie.
+                        if (eligibleReleases.Count > 0)
+                        {
+                            bool apiDeleted = false;
+                            var arrFilePath = await RemapToArrPath(item.FilePath, item);
+
+                            if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
+                            {
+                                apiDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath)
+                                    || await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, arrFilePath);
+                            }
+                            else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
+                            {
+                                apiDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath)
+                                    || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
+                            }
+
+                            if (await _fileService.FileExists(item.FilePath))
+                                await _fileService.DeleteFile(item.FilePath);
+
+                            _logger.LogInformation("[TransitionService] Deleted existing file for {Title} before grab (API: {ApiDeleted})", item.Title, apiDeleted);
+                        }
+
                         foreach (var release in eligibleReleases)
                         {
                             GrabResult result;
@@ -156,50 +182,44 @@ namespace Storarr.Services
                     _logger.LogWarning(ex, "[TransitionService] Manual grab failed for {Title}, will fall back", item.Title);
                 }
 
-                // If no grab was triggered via the configured MKV download client, revert to Symlink.
-                // Do NOT fall back to TriggerSearch — that lets Sonarr/Radarr pick any download client,
-                // violating the "use only the configured MKV download client" rule.
                 if (!grabTriggered)
                 {
-                    _logger.LogWarning("[TransitionService] No eligible releases via configured MKV download client for {Title}. Reverting to Symlink (no fallback).", item.Title);
-                    await LogActivity(item.Id, "TransitionToMkv", FileState.Symlink, FileState.Symlink,
-                        "No releases via configured MKV client, reverted");
+                    // Check if the existing file was deleted before the grab (eligible releases existed but all grabs failed)
+                    bool fileExists = await _fileService.FileExists(item.FilePath);
+                    if (!fileExists)
+                    {
+                        // File was deleted but grab failed -> set PendingSymlink so self-heal recreates the .strm
+                        _logger.LogWarning("[TransitionService] All grabs failed after file deletion for {Title}. Setting PendingSymlink for .strm recovery.", item.Title);
+                        var prevState = item.CurrentState;
+                        item.CurrentState = FileState.PendingSymlink;
+                        item.PendingSymlinkAt = DateTime.UtcNow;
+                        item.StateChangedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+                        await LogActivity(item.Id, "TransitionToMkv", prevState, FileState.PendingSymlink,
+                            "All grabs failed after deletion, pending .strm recovery");
+                        await _hubContext.Clients.All.SendAsync("MediaUpdated", item.Id, item.CurrentState.ToString());
+                    }
+                    else
+                    {
+                        // No eligible releases found, file still exists -> simple revert to Symlink
+                        _logger.LogWarning("[TransitionService] No eligible releases via configured MKV download client for {Title}. Reverting to Symlink.", item.Title);
+                        await LogActivity(item.Id, "TransitionToMkv", FileState.Symlink, FileState.Symlink,
+                            "No releases via configured MKV client, reverted");
+                    }
                     return;
                 }
 
-                // Delete the file
-                bool apiDeleted = false;
-                var arrFilePath = await RemapToArrPath(item.FilePath, item);
-
-                if (item.Type == MediaType.Movie && item.RadarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Deleting movie file via Radarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
-                    apiDeleted = await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, item.FilePath)
-                        || await _radarrService.DeleteMovieFileByPath(item.RadarrId.Value, arrFilePath);
-                }
-                else if ((item.Type == MediaType.Series || item.Type == MediaType.Anime) && item.SonarrId.HasValue)
-                {
-                    _logger.LogDebug("[TransitionService] Deleting episode file via Sonarr API: {Path} (arr: {ArrPath})", item.FilePath, arrFilePath);
-                    apiDeleted = await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, item.FilePath)
-                        || await _sonarrService.DeleteEpisodeFileByPath(item.SonarrId.Value, arrFilePath);
-                }
-
-                if (await _fileService.FileExists(item.FilePath))
-                {
-                    _logger.LogDebug("[TransitionService] Deleting file from disk: {Path}", item.FilePath);
-                    await _fileService.DeleteFile(item.FilePath);
-                }
-
+                // Grab succeeded - set Downloading. The existing file was already deleted before the grab
+                // to bypass Sonarr/Radarr's "existing file has equal or higher Custom Format score" rejection.
                 var previousState = item.CurrentState;
                 item.CurrentState = FileState.Downloading;
                 item.StateChangedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
                 await LogActivity(item.Id, "TransitionToMkv", previousState, FileState.Downloading,
-                    apiDeleted ? "Deleted via Arr API" : "Deleted from disk");
+                    "Grabbed via configured MKV download client");
                 await _hubContext.Clients.All.SendAsync("MediaUpdated", item.Id, item.CurrentState.ToString());
 
-                _logger.LogInformation("[TransitionService] Successfully transitioned {Title} to Downloading state (API deleted: {ApiDeleted})",
-                    item.Title, apiDeleted);
+                _logger.LogInformation("[TransitionService] Successfully transitioned {Title} to Downloading state", item.Title);
             }
             catch (Exception ex)
             {
