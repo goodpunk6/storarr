@@ -512,6 +512,26 @@ namespace Storarr.Services
             }
         }
 
+        public async Task<List<int>> GetEpisodeIds(int seriesId, int seasonNumber)
+        {
+            try
+            {
+                var request = await CreateRequest(HttpMethod.Get, $"api/v3/episode?seriesId={seriesId}");
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode) return new List<int>();
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<SonarrEpisodeResponse>>(content, _jsonOptions);
+                return data?.Where(e => e.SeasonNumber == seasonNumber && e.EpisodeNumber > 0)
+                            .Select(e => e.Id)
+                            .ToList() ?? new List<int>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get episode IDs for series {SeriesId} season {Season}", seriesId, seasonNumber);
+                return new List<int>();
+            }
+        }
+
         public async Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null)
         {
             try

@@ -48,6 +48,7 @@ namespace Storarr.Services
         Task TestConnection();
         Task<IEnumerable<ReleaseResult>> SearchReleases(int seriesId, int[] episodeIds);
         Task<IEnumerable<ReleaseResult>> SearchSeasonReleases(int seriesId, int seasonNumber);
+        Task<List<int>> GetEpisodeIds(int seriesId, int seasonNumber);
         Task<GrabResult> GrabRelease(string guid, int indexerId, int? downloadClientId = null, int? seriesId = null, int[]? episodeIds = null);
         Task<GrabResult> GrabReleaseOverride(string rawJson, int downloadClientId, int seriesId, int[] episodeIds);
         Task<IEnumerable<DownloadClientInfo>> GetDownloadClients();

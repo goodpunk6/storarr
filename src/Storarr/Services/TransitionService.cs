@@ -1083,14 +1083,10 @@ namespace Storarr.Services
                 var pack = chosen[0];
                 result.ChosenRelease = pack.Title;
 
-                // Resolve episode IDs for all items
-                var episodeIds = new List<int>();
-                foreach (var item in items)
-                {
-                    if (!item.SeasonNumber.HasValue || !item.EpisodeNumber.HasValue) continue;
-                    var epId = await _sonarrService.GetEpisodeId(seriesId, item.SeasonNumber.Value, item.EpisodeNumber.Value);
-                    if (epId.HasValue) episodeIds.Add(epId.Value);
-                }
+                // Resolve ALL episode IDs for the season so the pack imports every episode
+                // (not just the symlinked ones — otherwise episodes like E05 get skipped and Sonarr
+                // re-grabs them individually, defeating the one-pack-per-season goal).
+                var episodeIds = await _sonarrService.GetEpisodeIds(seriesId, seasonNumber);
                 if (episodeIds.Count == 0)
                 {
                     result.Message = "Could not resolve any episode IDs";
