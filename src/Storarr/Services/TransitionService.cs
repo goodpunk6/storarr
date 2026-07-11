@@ -75,6 +75,14 @@ namespace Storarr.Services
                         {
                             var seriesId = item.SonarrId.Value;
                             var seasonNo = item.SeasonNumber.Value;
+                            // Only prefer a season pack when MULTIPLE episodes need converting —
+                            // for a single episode, a per-episode release is the appropriate download.
+                            var symlinkCount = await _dbContext.MediaItems
+                                .CountAsync(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNo
+                                    && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)
+                                    && !m.IsExcluded);
+                            if (symlinkCount >= 2)
+                            {
                             await _sonarrService.TriggerSeasonSearch(seriesId, seasonNo);
                             await Task.Delay(TimeSpan.FromSeconds(20));
                             var seasonReleases = await _sonarrService.SearchSeasonReleases(seriesId, seasonNo);
@@ -124,6 +132,7 @@ namespace Storarr.Services
                                 foreach (var si in seasonItems) { si.CurrentState = FileState.PendingSymlink; si.PendingSymlinkAt = DateTime.UtcNow; si.StateChangedAt = DateTime.UtcNow; }
                                 await _dbContext.SaveChangesAsync();
                             }
+                            } // end if (symlinkCount >= 2) — only grab pack for multiple episodes
                         }
 
                         // Search releases scoped to this specific episode/movie
