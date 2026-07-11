@@ -117,8 +117,16 @@ namespace Storarr.Services
                                     await _sonarrService.DeleteEpisodeFileByPath(seriesId, arrPath);
                                     if (await _fileService.FileExists(si.FilePath)) await _fileService.DeleteFile(si.FilePath);
                                 }
-                                var allEpIds = await _sonarrService.GetEpisodeIds(seriesId, seasonNo);
-                                var packGrab = await _sonarrService.GrabReleaseOverride(bestPack.RawJson!, targetClient.Id, seriesId, allEpIds.ToArray());
+                                // Pass only the SYMLINK episodes' IDs — episodes that already have a
+                                // higher-quality .mkv aren't included, avoiding "Not an upgrade" rejections.
+                                var packEpIds = new List<int>();
+                                foreach (var si in seasonItems)
+                                {
+                                    if (!si.SeasonNumber.HasValue || !si.EpisodeNumber.HasValue) continue;
+                                    var epId = await _sonarrService.GetEpisodeId(seriesId, si.SeasonNumber.Value, si.EpisodeNumber.Value);
+                                    if (epId.HasValue) packEpIds.Add(epId.Value);
+                                }
+                                var packGrab = await _sonarrService.GrabReleaseOverride(bestPack.RawJson!, targetClient.Id, seriesId, packEpIds.ToArray());
                                 if (packGrab.Success)
                                 {
                                     foreach (var si in seasonItems) { si.CurrentState = FileState.Downloading; si.StateChangedAt = DateTime.UtcNow; }
