@@ -95,10 +95,16 @@ namespace Storarr.Services
                                 .Where(r => IsSeasonPack(r.Title, seasonNo))
                                 .Where(r => !string.IsNullOrEmpty(r.RawJson))
                                 .ToList();
-                            var pTier1 = packPool.Where(r => r.DownloadAllowed)
-                                .OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ToList();
+                            // Quality-first among genuinely-seeded packs: filter to a seeder health floor,
+                            // then prefer the BEST quality (resolution via QualityWeight) with seeders only
+                            // as a tiebreaker. Ranking by seeders alone biases toward low-res releases on
+                            // cold/old content (e.g. a 720p pack out-seeding the 1080p on a '90s show).
+                            const int minPackSeeders = 3;
+                            var healthyPacks = packPool.Where(r => (r.Seeders ?? 0) >= minPackSeeders).ToList();
+                            var pTier1 = healthyPacks.Where(r => r.DownloadAllowed)
+                                .OrderByDescending(r => r.QualityWeight).ThenByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ToList();
                             var pTier2 = pTier1.Count == 0
-                                ? packPool.Where(r => (r.Seeders ?? 0) >= 1).OrderByDescending(r => r.Seeders ?? 0).ToList()
+                                ? healthyPacks.OrderByDescending(r => r.QualityWeight).ThenByDescending(r => r.Seeders ?? 0).ToList()
                                 : new List<ReleaseResult>();
                             var bestPack = (pTier1.Count > 0 ? pTier1 : pTier2).FirstOrDefault();
                             if (bestPack != null && (bestPack.Seeders ?? 0) >= 3)
@@ -201,22 +207,26 @@ namespace Storarr.Services
                             .Where(r => !string.IsNullOrEmpty(r.RawJson))
                             .ToList();
 
+                        // Quality-first among genuinely-seeded releases: require a seeder health floor,
+                        // then prefer the BEST quality (QualityWeight) with seeders as a tiebreaker. This
+                        // avoids grabbing the most-seeded low-res release on cold/old content.
+                        const int minSeeders = 3;
+                        var healthyPool = pool.Where(r => (r.Seeders ?? 0) >= minSeeders).ToList();
                         // Tier 1 (quality): releases the arr approves under its quality profile.
-                        var tier1 = pool
+                        var tier1 = healthyPool
                             .Where(r => r.DownloadAllowed)
-                            .OrderByDescending(r => r.Seeders ?? 0)
+                            .OrderByDescending(r => r.QualityWeight)
+                            .ThenByDescending(r => r.Seeders ?? 0)
                             .ThenByDescending(r => r.CustomFormatScore)
-                            .ThenByDescending(r => r.QualityWeight)
                             .ThenBy(r => r.Age)
                             .ToList();
 
-                        // Tier 2 (bypass): if no quality-approved release, take any seeded release and
+                        // Tier 2 (bypass): if no quality-approved release, take any healthy release and
                         // grab it via "override and add to download queue", ignoring the quality profile.
                         var tier2 = tier1.Count == 0
-                            ? pool
-                                .Where(r => (r.Seeders ?? 0) >= 1)
-                                .OrderByDescending(r => r.Seeders ?? 0)
-                                .ThenByDescending(r => r.CustomFormatScore)
+                            ? healthyPool
+                                .OrderByDescending(r => r.QualityWeight)
+                                .ThenByDescending(r => r.Seeders ?? 0)
                                 .ToList()
                             : new List<ReleaseResult>();
 
@@ -1189,10 +1199,13 @@ namespace Storarr.Services
                     .Where(r => !string.IsNullOrEmpty(r.RawJson))
                     .ToList();
 
-                var tier1 = pool.Where(r => r.DownloadAllowed)
-                    .OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ThenBy(r => r.Age).ToList();
+                // Quality-first among genuinely-seeded packs (health floor, then QualityWeight, then seeders).
+                const int minSeeders = 3;
+                var healthyPool = pool.Where(r => (r.Seeders ?? 0) >= minSeeders).ToList();
+                var tier1 = healthyPool.Where(r => r.DownloadAllowed)
+                    .OrderByDescending(r => r.QualityWeight).ThenByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ThenBy(r => r.Age).ToList();
                 var tier2 = tier1.Count == 0
-                    ? pool.Where(r => (r.Seeders ?? 0) >= 1).OrderByDescending(r => r.Seeders ?? 0).ThenByDescending(r => r.CustomFormatScore).ToList()
+                    ? healthyPool.OrderByDescending(r => r.QualityWeight).ThenByDescending(r => r.Seeders ?? 0).ToList()
                     : new List<ReleaseResult>();
                 var chosen = tier1.Count > 0 ? tier1 : tier2;
                 result.Tier = tier1.Count > 0 ? "quality" : (tier2.Count > 0 ? "bypass" : "none");
