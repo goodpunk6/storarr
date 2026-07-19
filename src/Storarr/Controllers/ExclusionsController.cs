@@ -220,13 +220,13 @@ namespace Storarr.Controllers
 
                 _dbContext.ExcludedItems.Add(exclusion);
 
-                // Remove any existing media items that match this exclusion
-                int removedCount = await _exclusionService.RemoveMatchingMediaItemsAsync(exclusion);
+                // Soft-pause any existing media items that match this exclusion (rows kept; auto-transitions disabled)
+                int pausedCount = await _exclusionService.PauseMatchingMediaItemsAsync(exclusion);
 
                 await _dbContext.SaveChangesAsync();
 
-                _logger.LogInformation("[ExclusionsController] Created exclusion for {Title} and removed {Count} media items",
-                    exclusion.Title, removedCount);
+                _logger.LogInformation("[ExclusionsController] Created exclusion for {Title} and paused {Count} media items",
+                    exclusion.Title, pausedCount);
 
                 var result = new ExcludedItemDto
                 {
@@ -239,7 +239,7 @@ namespace Storarr.Controllers
                     RadarrId = exclusion.RadarrId,
                     Reason = exclusion.Reason,
                     CreatedAt = exclusion.CreatedAt,
-                    RemovedMediaCount = removedCount
+                    RemovedMediaCount = pausedCount
                 };
 
                 return CreatedAtAction(nameof(GetExclusion), new { id = exclusion.Id }, result);
@@ -269,13 +269,15 @@ namespace Storarr.Controllers
                 }
 
                 _logger.LogInformation("[ExclusionsController] Removing exclusion for {Title}", item.Title);
+                int resumedCount = await _exclusionService.UnpauseMatchingMediaItemsAsync(item);
                 _dbContext.ExcludedItems.Remove(item);
                 await _dbContext.SaveChangesAsync();
 
                 return Ok(new
                 {
-                    message = "Exclusion removed. The item will be processed in the next library scan.",
-                    title = item.Title
+                    message = "Exclusion removed. Matching items will resume auto-transitions.",
+                    title = item.Title,
+                    resumedMediaCount = resumedCount
                 });
             }
             catch (Exception ex)

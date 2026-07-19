@@ -203,13 +203,15 @@ namespace Storarr.BackgroundServices
                 var mediaType = DetermineMediaType(file.Path);
                 var (sonarrId, radarrId, tvdbId, tmdbId, title) = MatchToArrServiceMultiBase(file.Path, allBasePaths, mediaType, seriesByPath, moviesByPath);
 
-                // Check if this file belongs to an excluded series/movie
-                if (IsExcluded(sonarrId, radarrId, tmdbId, tvdbId, excludedSonarrIds, excludedRadarrIds, excludedTmdbIds, excludedTvdbIds))
+                // Check if this file belongs to an excluded series/movie.
+                // Soft-pause model: still track the file (so it's visible + manually convertible) but
+                // mark IsExcluded=true so automatic transitions skip it.
+                bool belongsToExcluded = IsExcluded(sonarrId, radarrId, tmdbId, tvdbId, excludedSonarrIds, excludedRadarrIds, excludedTmdbIds, excludedTvdbIds);
+                if (belongsToExcluded)
                 {
                     skippedExcluded++;
-                    _logger.LogDebug("[LibraryScanner] Skipping excluded file: {Path} (SonarrId={SonarrId}, RadarrId={RadarrId})",
+                    _logger.LogDebug("[LibraryScanner] Tracking excluded file as paused: {Path} (SonarrId={SonarrId}, RadarrId={RadarrId})",
                         file.Path, sonarrId, radarrId);
-                    continue;
                 }
 
                 var mediaItem = new MediaItem
@@ -224,7 +226,8 @@ namespace Storarr.BackgroundServices
                     SonarrId = sonarrId,
                     RadarrId = radarrId,
                     TvdbId = tvdbId,
-                    TmdbId = tmdbId
+                    TmdbId = tmdbId,
+                    IsExcluded = belongsToExcluded
                 };
 
                 // Extract season/episode from path for TV shows

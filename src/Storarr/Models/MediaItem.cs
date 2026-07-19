@@ -48,8 +48,15 @@ namespace Storarr.Models
         // File size in bytes
         public long? FileSize { get; set; }
 
-        // Exclude from automatic transitions
+        // Exclude from automatic transitions (master pause - disables BOTH directions)
         public bool IsExcluded { get; set; } = false;
+
+        // Per-direction auto-transition disables (granular; compose with IsExcluded via AND)
+        public bool DisableAutoToMkv { get; set; } = false;     // gates strm->mkv auto only
+        public bool DisableAutoToSymlink { get; set; } = false; // gates mkv->strm auto only
+
+        // One-shot guard: the download-order reactive trigger has fired for this item
+        public bool DownloadOrderApplied { get; set; } = false;
 
         // Timestamp when item entered PendingSymlink state (for stale detection)
         public DateTime? PendingSymlinkAt { get; set; }
@@ -59,5 +66,18 @@ namespace Storarr.Models
         public string? ErrorMessage { get; set; }
 
         public DateTime? ErrorAt { get; set; }
+
+        /// <summary>
+        /// Anchor date for auto-transition countdowns = the most recent of CreatedAt,
+        /// StateChangedAt, LastWatchedAt. Any deliberate transition (which sets StateChangedAt=now)
+        /// or a watch (LastWatchedAt) resets the clock, preventing oscillation between directions.
+        /// </summary>
+        public DateTime GetTransitionAnchor()
+        {
+            var best = CreatedAt;
+            if (StateChangedAt.HasValue && StateChangedAt.Value > best) best = StateChangedAt.Value;
+            if (LastWatchedAt.HasValue && LastWatchedAt.Value > best) best = LastWatchedAt.Value;
+            return best;
+        }
     }
 }

@@ -71,31 +71,56 @@ namespace Storarr.Services
 
             _dbContext.ExcludedItems.Add(exclusion);
 
-            int removedCount = await matchingItems.CountAsync(ct);
-            _dbContext.MediaItems.RemoveRange(matchingItems);
+            int pausedCount = await matchingItems.CountAsync(ct);
+            var itemsToPause = await matchingItems.ToListAsync(ct);
+            foreach (var m in itemsToPause)
+            {
+                m.IsExcluded = true;
+            }
 
-            _logger.LogInformation("[ExclusionService] Staged exclusion for {Title}, removing {Count} media items",
-                exclusion.Title, removedCount);
+            _logger.LogInformation("[ExclusionService] Staged soft-pause exclusion for {Title}, pausing {Count} media items",
+                exclusion.Title, pausedCount);
 
-            return new ExcludeByArrIdResult { Success = true, Exclusion = exclusion, RemovedMediaCount = removedCount };
+            return new ExcludeByArrIdResult { Success = true, Exclusion = exclusion, RemovedMediaCount = pausedCount };
         }
 
-        public async Task<int> RemoveMatchingMediaItemsAsync(ExcludedItem exclusion, CancellationToken ct = default)
+        public async Task<int> PauseMatchingMediaItemsAsync(ExcludedItem exclusion, CancellationToken ct = default)
         {
-            IQueryable<MediaItem> matchingItems = _dbContext.MediaItems.Where(m => false);
-
-            if (exclusion.SonarrId.HasValue)
-                matchingItems = _dbContext.MediaItems.Where(m => m.SonarrId == exclusion.SonarrId);
-            else if (exclusion.RadarrId.HasValue)
-                matchingItems = _dbContext.MediaItems.Where(m => m.RadarrId == exclusion.RadarrId);
-            else if (exclusion.TmdbId.HasValue)
-                matchingItems = _dbContext.MediaItems.Where(m => m.TmdbId == exclusion.TmdbId);
-            else if (exclusion.TvdbId.HasValue)
-                matchingItems = _dbContext.MediaItems.Where(m => m.TvdbId == exclusion.TvdbId);
+            var matchingItems = BuildMatcher(exclusion);
 
             int count = await matchingItems.CountAsync(ct);
-            _dbContext.MediaItems.RemoveRange(matchingItems);
+            var items = await matchingItems.ToListAsync(ct);
+            foreach (var m in items)
+            {
+                m.IsExcluded = true;
+            }
             return count;
+        }
+
+        public async Task<int> UnpauseMatchingMediaItemsAsync(ExcludedItem exclusion, CancellationToken ct = default)
+        {
+            var matchingItems = BuildMatcher(exclusion);
+
+            int count = await matchingItems.CountAsync(ct);
+            var items = await matchingItems.ToListAsync(ct);
+            foreach (var m in items)
+            {
+                m.IsExcluded = false;
+            }
+            return count;
+        }
+
+        private IQueryable<MediaItem> BuildMatcher(ExcludedItem exclusion)
+        {
+            if (exclusion.SonarrId.HasValue)
+                return _dbContext.MediaItems.Where(m => m.SonarrId == exclusion.SonarrId);
+            if (exclusion.RadarrId.HasValue)
+                return _dbContext.MediaItems.Where(m => m.RadarrId == exclusion.RadarrId);
+            if (exclusion.TmdbId.HasValue)
+                return _dbContext.MediaItems.Where(m => m.TmdbId == exclusion.TmdbId);
+            if (exclusion.TvdbId.HasValue)
+                return _dbContext.MediaItems.Where(m => m.TvdbId == exclusion.TvdbId);
+            return _dbContext.MediaItems.Where(m => false);
         }
 
         public async Task<int> CountMatchingMediaItemsAsync(ExcludedItem exclusion, CancellationToken ct = default)

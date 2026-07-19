@@ -14,6 +14,7 @@ namespace Storarr.DTOs
         public string SymlinkToMkvUnit { get; set; } = "Days";
         public int MkvToSymlinkValue { get; set; }
         public string MkvToSymlinkUnit { get; set; } = "Days";
+        public string PreferredDownloadOrder { get; set; } = "StrmFirst";
 
         public string MediaLibraryPath { get; set; } = string.Empty;
 
@@ -95,6 +96,7 @@ namespace Storarr.DTOs
         public string? SymlinkToMkvUnit { get; set; }
         public int? MkvToSymlinkValue { get; set; }
         public string? MkvToSymlinkUnit { get; set; }
+        public string? PreferredDownloadOrder { get; set; }
 
         public string? MediaLibraryPath { get; set; }
 

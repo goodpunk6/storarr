@@ -87,6 +87,11 @@ namespace Storarr
                 AddColumnIfNotExists(dbContext, "Configs", "RadarrMkvDownloadClientId", "INTEGER NULL");
                 AddColumnIfNotExists(dbContext, "MediaItems", "ErrorMessage", "TEXT NULL");
                 AddColumnIfNotExists(dbContext, "MediaItems", "ErrorAt", "TEXT NULL");
+                // Soft-pause exclusions + per-direction disable + download-order preference
+                AddColumnIfNotExists(dbContext, "MediaItems", "DisableAutoToMkv", "INTEGER NOT NULL DEFAULT 0");
+                AddColumnIfNotExists(dbContext, "MediaItems", "DisableAutoToSymlink", "INTEGER NOT NULL DEFAULT 0");
+                AddColumnIfNotExists(dbContext, "MediaItems", "DownloadOrderApplied", "INTEGER NOT NULL DEFAULT 0");
+                AddColumnIfNotExists(dbContext, "Configs", "PreferredDownloadOrder", "INTEGER NOT NULL DEFAULT 0");
             }
 
             host.Run();

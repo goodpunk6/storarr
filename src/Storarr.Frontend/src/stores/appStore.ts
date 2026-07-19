@@ -12,6 +12,8 @@ export interface MediaItem {
   fileSize?: number
   daysUntilTransition?: number
   isExcluded: boolean
+  disableAutoToMkv: boolean
+  disableAutoToSymlink: boolean
   createdAt?: string
   stateChangedAt?: string
   sonarrId?: number
@@ -112,6 +114,7 @@ export interface EnsureTrackedResponseDto {
 export type TimeUnit = 'Minutes' | 'Hours' | 'Days' | 'Weeks' | 'Months'
 export type LibraryMode = 'NewContentOnly' | 'TrackExisting' | 'FullAutomation'
 export type DownloadClientType = 'QBittorrent' | 'Transmission' | 'Sabnzbd'
+export type DownloadOrder = 'StrmFirst' | 'MkvFirst'
 
 export interface DownloadClientConfig {
   enabled: boolean
@@ -129,6 +132,7 @@ export interface Config {
   symlinkToMkvUnit: TimeUnit
   mkvToSymlinkValue: number
   mkvToSymlinkUnit: TimeUnit
+  preferredDownloadOrder: DownloadOrder
   mediaLibraryPath: string
   // Multi-drive storage
   multiDriveEnabled: boolean

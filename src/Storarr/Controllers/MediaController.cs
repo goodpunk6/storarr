@@ -92,6 +92,8 @@ namespace Storarr.Controllers
                         EpisodeNumber = m.EpisodeNumber,
                         FileSize = m.FileSize,
                         IsExcluded = m.IsExcluded,
+                        DisableAutoToMkv = m.DisableAutoToMkv,
+                        DisableAutoToSymlink = m.DisableAutoToSymlink,
                         DaysUntilTransition = CalculateDaysUntilTransition(m, config, now),
                         IsOverdue = IsTransitionOverdue(m, config, now),
                         ErrorMessage = m.ErrorMessage
@@ -144,6 +146,8 @@ namespace Storarr.Controllers
                     EpisodeNumber = item.EpisodeNumber,
                     FileSize = item.FileSize,
                     IsExcluded = item.IsExcluded,
+                    DisableAutoToMkv = item.DisableAutoToMkv,
+                    DisableAutoToSymlink = item.DisableAutoToSymlink,
                     DaysUntilTransition = CalculateDaysUntilTransition(item, config, now),
                     IsOverdue = IsTransitionOverdue(item, config, now),
                     TransitionType = GetTransitionType(item, config),
@@ -371,6 +375,65 @@ namespace Storarr.Controllers
                 message = item.IsExcluded ? "Item excluded from auto-transitions" : "Item included in auto-transitions",
                 id = item.Id,
                 isExcluded = item.IsExcluded
+            });
+        }
+
+        [HttpPost("{id}/toggle-auto-to-mkv")]
+        public async Task<ActionResult> ToggleAutoToMkv(int id)
+        {
+            var item = await _dbContext.MediaItems.FindAsync(id);
+            if (item == null) return NotFound();
+
+            item.DisableAutoToMkv = !item.DisableAutoToMkv;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("[MediaController] Toggled DisableAutoToMkv for {Title} to {Val}", item.Title, item.DisableAutoToMkv);
+
+            return Ok(new
+            {
+                id = item.Id,
+                disableAutoToMkv = item.DisableAutoToMkv,
+                disableAutoToSymlink = item.DisableAutoToSymlink
+            });
+        }
+
+        [HttpPost("{id}/toggle-auto-to-symlink")]
+        public async Task<ActionResult> ToggleAutoToSymlink(int id)
+        {
+            var item = await _dbContext.MediaItems.FindAsync(id);
+            if (item == null) return NotFound();
+
+            item.DisableAutoToSymlink = !item.DisableAutoToSymlink;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("[MediaController] Toggled DisableAutoToSymlink for {Title} to {Val}", item.Title, item.DisableAutoToSymlink);
+
+            return Ok(new
+            {
+                id = item.Id,
+                disableAutoToMkv = item.DisableAutoToMkv,
+                disableAutoToSymlink = item.DisableAutoToSymlink
+            });
+        }
+
+        [HttpPut("{id}/auto-transition")]
+        public async Task<ActionResult> SetAutoTransition(int id, [FromBody] SetAutoTransitionDto dto)
+        {
+            var item = await _dbContext.MediaItems.FindAsync(id);
+            if (item == null) return NotFound();
+
+            if (dto.DisableAutoToMkv.HasValue) item.DisableAutoToMkv = dto.DisableAutoToMkv.Value;
+            if (dto.DisableAutoToSymlink.HasValue) item.DisableAutoToSymlink = dto.DisableAutoToSymlink.Value;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("[MediaController] Set auto-transition flags for {Title}: toMkv={Mkv}, toSymlink={Sym}",
+                item.Title, item.DisableAutoToMkv, item.DisableAutoToSymlink);
+
+            return Ok(new
+            {
+                id = item.Id,
+                disableAutoToMkv = item.DisableAutoToMkv,
+                disableAutoToSymlink = item.DisableAutoToSymlink
             });
         }
 
@@ -886,8 +949,8 @@ namespace Storarr.Controllers
 
             return item.CurrentState switch
             {
-                FileState.Symlink => (int)(config.GetSymlinkToMkvTimeSpan() - (now - (item.LastWatchedAt ?? item.CreatedAt))).TotalDays,
-                FileState.Mkv => (int)(config.GetMkvToSymlinkTimeSpan() - (now - (item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt))).TotalDays,
+                FileState.Symlink => item.DisableAutoToMkv ? null : (int)(config.GetSymlinkToMkvTimeSpan() - (now - item.GetTransitionAnchor())).TotalDays,
+                FileState.Mkv => item.DisableAutoToSymlink ? null : (int)(config.GetMkvToSymlinkTimeSpan() - (now - item.GetTransitionAnchor())).TotalDays,
                 _ => null
             };
         }
@@ -905,8 +968,8 @@ namespace Storarr.Controllers
 
             return item.CurrentState switch
             {
-                FileState.Symlink => "ToMkv",
-                FileState.Mkv => "ToSymlink",
+                FileState.Symlink => item.DisableAutoToMkv ? "PausedToMkv" : "ToMkv",
+                FileState.Mkv => item.DisableAutoToSymlink ? "PausedToSymlink" : "ToSymlink",
                 FileState.Downloading => "Downloading",
                 FileState.PendingSymlink => "AwaitingSymlink",
                 FileState.Error => "Error",

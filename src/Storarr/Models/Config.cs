@@ -22,6 +22,9 @@ namespace Storarr.Models
         public int MkvToSymlinkValue { get; set; } = 30;
         public TimeUnit MkvToSymlinkUnit { get; set; } = TimeUnit.Days;
 
+        // Download order preference - whether new content is fetched as MKV or kept as STRM first
+        public DownloadOrder PreferredDownloadOrder { get; set; } = DownloadOrder.StrmFirst;
+
         // Paths - Legacy single path (fallback if tier paths not set)
         [MaxLength(500)]
         public string MediaLibraryPath { get; set; } = "/media";

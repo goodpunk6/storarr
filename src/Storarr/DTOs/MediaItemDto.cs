@@ -22,6 +22,8 @@ namespace Storarr.DTOs
         public int? EpisodeNumber { get; set; }
         public long? FileSize { get; set; }
         public bool IsExcluded { get; set; }
+        public bool DisableAutoToMkv { get; set; }
+        public bool DisableAutoToSymlink { get; set; }
 
         // Computed fields
         public int? DaysUntilTransition { get; set; }
@@ -57,6 +59,8 @@ namespace Storarr.DTOs
         public int? EpisodeNumber { get; set; }
         public long? FileSize { get; set; }
         public bool IsExcluded { get; set; }
+        public bool DisableAutoToMkv { get; set; }
+        public bool DisableAutoToSymlink { get; set; }
         public int? DaysUntilTransition { get; set; }
         public bool IsOverdue { get; set; }
         public string? ErrorMessage { get; set; }
@@ -65,6 +69,12 @@ namespace Storarr.DTOs
     public class SetExcludedDto
     {
         public bool IsExcluded { get; set; }
+    }
+
+    public class SetAutoTransitionDto
+    {
+        public bool? DisableAutoToMkv { get; set; }
+        public bool? DisableAutoToSymlink { get; set; }
     }
 
     public class ClearErrorsDto

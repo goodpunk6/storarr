@@ -79,8 +79,7 @@ namespace Storarr.Services
                             // for a single episode, a per-episode release is the appropriate download.
                             var symlinkCount = await _dbContext.MediaItems
                                 .CountAsync(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNo
-                                    && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)
-                                    && !m.IsExcluded);
+                                    && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)); // manual: include paused (IsExcluded) episodes so a series-excluded show can still be pack-converted
                             if (symlinkCount >= 2)
                             {
                             await _sonarrService.TriggerSeasonSearch(seriesId, seasonNo);
@@ -108,7 +107,7 @@ namespace Storarr.Services
                                     item.Title, seasonNo, bestPack.Seeders, pTier1.Count > 0 ? "quality" : "bypass");
                                 var seasonItems = await _dbContext.MediaItems
                                     .Where(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNo
-                                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink) && !m.IsExcluded)
+                                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)) // manual: include paused episodes
                                     .ToListAsync();
                                 foreach (var si in seasonItems)
                                 {
@@ -606,6 +605,53 @@ namespace Storarr.Services
             }
         }
 
+        /// <summary>
+        /// Enforce PreferredDownloadOrder for items that recently entered their current state (30-min window,
+        /// one-shot via DownloadOrderApplied). Runs in ALL LibraryModes - initial placement is orthogonal to
+        /// ongoing auto-transitions. Honors IsExcluded and the per-direction disable flags.
+        /// </summary>
+        private async Task ApplyDownloadOrderPreference(DateTime now, Config config)
+        {
+            var freshWindow = TimeSpan.FromMinutes(30);
+            var cutoff = now - freshWindow;
+            var mkvFirst = config.PreferredDownloadOrder == DownloadOrder.MkvFirst;
+
+            var items = mkvFirst
+                ? await _dbContext.MediaItems.Where(m => !m.DownloadOrderApplied
+                    && m.CurrentState == FileState.Symlink && !m.IsExcluded && !m.DisableAutoToMkv
+                    && (m.StateChangedAt ?? m.CreatedAt) >= cutoff).ToListAsync()
+                : await _dbContext.MediaItems.Where(m => !m.DownloadOrderApplied
+                    && m.CurrentState == FileState.Mkv && !m.IsExcluded && !m.DisableAutoToSymlink
+                    && (m.StateChangedAt ?? m.CreatedAt) >= cutoff).ToListAsync();
+
+            if (items.Count == 0) return;
+
+            // Mark applied (and persist) before transitioning so a failure doesn't loop on the next tick.
+            foreach (var it in items) it.DownloadOrderApplied = true;
+            await _dbContext.SaveChangesAsync();
+
+            foreach (var it in items)
+            {
+                try
+                {
+                    if (mkvFirst)
+                    {
+                        _logger.LogInformation("[TransitionService] Download-order (MKV-first): materializing '{Title}' to MKV", it.Title);
+                        await TransitionToMkv(it);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[TransitionService] Download-order (STRM-first): reducing '{Title}' to symlink", it.Title);
+                        await TransitionToSymlink(it);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[TransitionService] Download-order ({Mode}) failed for '{Title}'", mkvFirst ? "MKV-first" : "STRM-first", it.Title);
+                }
+            }
+        }
+
         public async Task CheckAndProcessTransitions()
         {
             _logger.LogDebug("[TransitionService] CheckAndProcessTransitions started");
@@ -618,6 +664,10 @@ namespace Storarr.Services
             }
 
             var now = DateTime.UtcNow;
+
+            // Apply download-order preference for newly-added items (runs in ALL LibraryModes;
+            // initial placement is orthogonal to ongoing automation). One-shot per item.
+            await ApplyDownloadOrderPreference(now, config);
 
             // Stale PendingSymlink reaper: runs in ALL modes (this is cleanup, not auto-transition)
             var stalePendingItems = await _dbContext.MediaItems
@@ -790,13 +840,13 @@ namespace Storarr.Services
 
             // Only process items that are NOT excluded
             var symlinksToConvert = await _dbContext.MediaItems
-                .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded)
+                .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded && !m.DisableAutoToMkv)
                 .ToListAsync();
             _logger.LogDebug("[TransitionService] Found {Count} symlinks to check (excluded items skipped)", symlinksToConvert.Count);
 
             foreach (var item in symlinksToConvert)
             {
-                var lastWatched = item.LastWatchedAt ?? item.CreatedAt;
+                var lastWatched = item.GetTransitionAnchor();
                 var timeSinceWatch = now - lastWatched;
 
                 if (timeSinceWatch >= symlinkToMkvThreshold)
@@ -810,13 +860,13 @@ namespace Storarr.Services
 
             // Only process items that are NOT excluded
             var mkvsToConvert = await _dbContext.MediaItems
-                .Where(m => m.CurrentState == FileState.Mkv && !m.IsExcluded)
+                .Where(m => m.CurrentState == FileState.Mkv && !m.IsExcluded && !m.DisableAutoToSymlink)
                 .ToListAsync();
             _logger.LogDebug("[TransitionService] Found {Count} MKVs to check (excluded items skipped)", mkvsToConvert.Count);
 
             foreach (var item in mkvsToConvert)
             {
-                var lastWatched = item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt;
+                var lastWatched = item.GetTransitionAnchor();
                 var timeInactive = now - lastWatched;
 
                 if (timeInactive >= mkvToSymlinkThreshold)
@@ -848,14 +898,14 @@ namespace Storarr.Services
             // Only include non-excluded items
             var symlinks = await _dbContext.MediaItems
                 .AsNoTracking()
-                .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded)
+                .Where(m => m.CurrentState == FileState.Symlink && !m.IsExcluded && !m.DisableAutoToMkv)
                 .OrderBy(m => m.LastWatchedAt ?? m.CreatedAt)
                 .Take(count)
                 .ToListAsync();
 
             foreach (var item in symlinks)
             {
-                var lastWatched = item.LastWatchedAt ?? item.CreatedAt;
+                var lastWatched = item.GetTransitionAnchor();
                 var timeSinceWatch = now - lastWatched;
                 var timeRemaining = symlinkToMkvThreshold - timeSinceWatch;
                 if (timeRemaining <= previewWindow)
@@ -875,14 +925,14 @@ namespace Storarr.Services
             // Only include non-excluded items
             var mkvs = await _dbContext.MediaItems
                 .AsNoTracking()
-                .Where(m => m.CurrentState == FileState.Mkv && !m.IsExcluded)
+                .Where(m => m.CurrentState == FileState.Mkv && !m.IsExcluded && !m.DisableAutoToSymlink)
                 .OrderBy(m => m.LastWatchedAt ?? m.StateChangedAt ?? m.CreatedAt)
                 .Take(count)
                 .ToListAsync();
 
             foreach (var item in mkvs)
             {
-                var lastActive = item.LastWatchedAt ?? item.StateChangedAt ?? item.CreatedAt;
+                var lastActive = item.GetTransitionAnchor();
                 var timeInactive = now - lastActive;
                 var timeRemaining = mkvToSymlinkThreshold - timeInactive;
                 if (timeRemaining <= previewWindow)
@@ -1097,8 +1147,7 @@ namespace Storarr.Services
                 // Gather Symlink/PendingSymlink episodes for this series+season
                 var items = await _dbContext.MediaItems
                     .Where(m => m.SonarrId == seriesId && m.SeasonNumber == seasonNumber
-                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)
-                        && !m.IsExcluded)
+                        && (m.CurrentState == FileState.Symlink || m.CurrentState == FileState.PendingSymlink)) // manual: include paused episodes
                     .ToListAsync();
                 if (items.Count == 0)
                 {

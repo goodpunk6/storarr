@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Save, RefreshCw, Check, X, Info, Plus, Trash2, Play, Clock } from 'lucide-react'
 import { getConfig, updateConfig, testConnections, processTransitions, getDownloadClients } from '../api/client'
-import { Config, TimeUnit, DownloadClientType } from '../stores/appStore'
+import { Config, TimeUnit, DownloadClientType, DownloadOrder } from '../stores/appStore'
 
 interface ConnectionTest {
   service: string
@@ -50,6 +50,7 @@ export default function Settings() {
           symlinkToMkvUnit: apiConfig.symlinkToMkvUnit,
           mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
           mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
+          preferredDownloadOrder: apiConfig.preferredDownloadOrder,
           mediaLibraryPath: apiConfig.mediaLibraryPath,
           // Multi-drive
           multiDriveEnabled: apiConfig.multiDriveEnabled || false,
@@ -422,6 +423,23 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Download Order Preference */}
+          <div className="bg-arr-card rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-2">Download Order</h3>
+            <p className="text-sm text-arr-muted mb-4">
+              Whether newly-added content is fetched as a streaming symlink or materialized as a local MKV first.
+              Applies to items within 30 minutes of being added (one-shot).
+            </p>
+            <select
+              value={config.preferredDownloadOrder}
+              onChange={(e) => updateConfigField('preferredDownloadOrder', e.target.value as DownloadOrder)}
+              className="w-full bg-arr-bg border border-arr-primary rounded-lg px-4 py-2 focus:outline-none focus:border-arr-accent"
+            >
+              <option value="StrmFirst">STRM first (default)</option>
+              <option value="MkvFirst">MKV first</option>
+            </select>
           </div>
 
           {/* STRM Refresh Schedule */}

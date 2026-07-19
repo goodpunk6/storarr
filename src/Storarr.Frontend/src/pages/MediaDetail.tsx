@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Download, Link2, Trash2, Ban, Play, Pause } from 'lucide-react'
-import { getMediaItem, forceDownload, forceSymlink, deleteMedia, toggleExcluded, excludeByArrId } from '../api/client'
+import { getMediaItem, forceDownload, forceSymlink, deleteMedia, toggleExcluded, toggleAutoToMkv, toggleAutoToSymlink, excludeByArrId } from '../api/client'
 import { MediaItem } from '../stores/appStore'
 
 export default function MediaDetail() {
@@ -83,11 +83,39 @@ export default function MediaDetail() {
     }
   }
 
+  const handleToggleAutoToMkv = async () => {
+    if (!item || actionLoading || item.isExcluded) return
+    setActionLoading(true)
+    try {
+      await toggleAutoToMkv(item.id)
+      const response = await getMediaItem(item.id)
+      setItem(response.data)
+    } catch (error) {
+      console.error('Failed to toggle auto->mkv:', error)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleToggleAutoToSymlink = async () => {
+    if (!item || actionLoading || item.isExcluded) return
+    setActionLoading(true)
+    try {
+      await toggleAutoToSymlink(item.id)
+      const response = await getMediaItem(item.id)
+      setItem(response.data)
+    } catch (error) {
+      console.error('Failed to toggle auto->symlink:', error)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleExcludeEntireSeries = async () => {
     if (!item || actionLoading) return
     const confirmMsg = item.type === 'Movie'
-      ? `Exclude "${item.title}" from the entire Storarr process?\n\nThis will remove all tracked files for this movie and prevent any future tracking.`
-      : `Exclude the entire "${item.title}" series from the Storarr process?\n\nThis will remove all tracked episodes and prevent any future tracking.`
+      ? `Exclude "${item.title}" from automatic transitions?\n\nAll tracked files for this movie will be paused (kept, but auto-transitions disabled). Manual conversion still works.`
+      : `Exclude the entire "${item.title}" series from automatic transitions?\n\nAll tracked episodes will be paused (kept, but auto-transitions disabled). Manual conversion still works.`
     if (!confirm(confirmMsg)) return
 
     setActionLoading(true)
@@ -227,6 +255,32 @@ export default function MediaDetail() {
             {item.isExcluded ? 'Resume Transitions' : 'Pause Transitions'}
           </button>
           <button
+            onClick={handleToggleAutoToMkv}
+            disabled={actionLoading || item.isExcluded}
+            title={item.isExcluded ? 'Fully paused' : (item.disableAutoToMkv ? 'strm→mkv auto is OFF' : 'strm→mkv auto is ON')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+              item.disableAutoToMkv
+                ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                : 'bg-arr-muted/20 text-arr-muted hover:bg-arr-muted/30'
+            }`}
+          >
+            {item.disableAutoToMkv ? <Pause size={20} /> : <Play size={20} />}
+            Auto→MKV {item.disableAutoToMkv ? 'Off' : 'On'}
+          </button>
+          <button
+            onClick={handleToggleAutoToSymlink}
+            disabled={actionLoading || item.isExcluded}
+            title={item.isExcluded ? 'Fully paused' : (item.disableAutoToSymlink ? 'mkv→strm auto is OFF' : 'mkv→strm auto is ON')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+              item.disableAutoToSymlink
+                ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                : 'bg-arr-muted/20 text-arr-muted hover:bg-arr-muted/30'
+            }`}
+          >
+            {item.disableAutoToSymlink ? <Pause size={20} /> : <Play size={20} />}
+            Auto→Symlink {item.disableAutoToSymlink ? 'Off' : 'On'}
+          </button>
+          <button
             onClick={handleDelete}
             disabled={actionLoading}
             className="flex items-center gap-2 px-4 py-2 bg-arr-danger/20 text-arr-danger hover:bg-arr-danger/30 rounded-lg transition-colors disabled:opacity-50"
@@ -241,8 +295,8 @@ export default function MediaDetail() {
       <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-2 text-red-400">Danger Zone</h3>
         <p className="text-sm text-arr-muted mb-4">
-          Completely exclude this {item.type === 'Movie' ? 'movie' : 'series'} from Storarr.
-          All files will be removed from tracking and future library scans will skip this content.
+          Pause automatic transitions for this entire {item.type === 'Movie' ? 'movie' : 'series'}.
+          Tracked files are kept (manual conversion still works) but auto-transitions are disabled until you remove the exclusion.
         </p>
         <button
           onClick={handleExcludeEntireSeries}

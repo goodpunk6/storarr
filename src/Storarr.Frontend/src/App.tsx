@@ -20,6 +20,7 @@ function mapApiConfigToStore(apiConfig: any): Config {
     symlinkToMkvUnit: apiConfig.symlinkToMkvUnit,
     mkvToSymlinkValue: apiConfig.mkvToSymlinkValue,
     mkvToSymlinkUnit: apiConfig.mkvToSymlinkUnit,
+    preferredDownloadOrder: apiConfig.preferredDownloadOrder,
     mediaLibraryPath: apiConfig.mediaLibraryPath,
     // Multi-drive
     multiDriveEnabled: apiConfig.multiDriveEnabled || false,

@@ -212,6 +212,8 @@ namespace Storarr.Controllers
                     config.StrmRefreshDayOfWeek = dayOfWeek;
                 if (!string.IsNullOrEmpty(dto.StrmRefreshInterval) && Enum.TryParse<StrmRefreshInterval>(dto.StrmRefreshInterval, out var interval))
                     config.StrmRefreshInterval = interval;
+                if (!string.IsNullOrEmpty(dto.PreferredDownloadOrder) && Enum.TryParse<DownloadOrder>(dto.PreferredDownloadOrder, out var downloadOrder))
+                    config.PreferredDownloadOrder = downloadOrder;
 
                 await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("[ConfigController] Config saved successfully");
@@ -481,6 +483,7 @@ namespace Storarr.Controllers
                 StrmRefreshMinute = config.StrmRefreshMinute,
                 StrmRefreshDayOfWeek = config.StrmRefreshDayOfWeek.ToString(),
                 StrmRefreshInterval = config.StrmRefreshInterval.ToString(),
+                PreferredDownloadOrder = config.PreferredDownloadOrder.ToString(),
                 StrmRefreshLastRun = config.StrmRefreshLastRun,
                 StrmRefreshNextRun = config.StrmRefreshNextRun,
                 SonarrSymlinkDownloadClientId = config.SonarrSymlinkDownloadClientId,
